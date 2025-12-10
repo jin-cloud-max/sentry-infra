@@ -7,12 +7,12 @@ Templates CloudFormation para criação de VPCs segregadas para o OMS Spider.
 ### 📦 VPCs Disponíveis
 
 1. **vpc-nonprod.json** - Ambientes dev e staging
-   - CIDR: `10.10.0.0/16` (dev) ou `10.11.0.0/16` (staging)
+   - CIDR: `172.22.0.0/16` (Classe B)
    - Suporta single-AZ (dev) ou multi-AZ (staging)
    - 1-2 NAT Gateways conforme configuração
 
 2. **vpc-prod.json** - Ambiente de produção
-   - CIDR: `10.20.0.0/16`
+   - CIDR: `172.23.0.0/16` (Classe B)
    - Sempre multi-AZ (mínimo 2 AZs, suporta 3)
    - 2 NAT Gateways obrigatórios
    - Enhanced monitoring e compliance
@@ -24,7 +24,7 @@ Templates CloudFormation para criação de VPCs segregadas para o OMS Spider.
 Cada VPC contém:
 
 ```
-VPC (10.x.0.0/16)
+VPC (172.x.0.0/16)
 ├── Public Subnets (2-3 AZs)
 │   ├── Internet Gateway
 │   ├── NAT Gateway 1 (Elastic IP 1) ⭐
@@ -49,7 +49,7 @@ aws cloudformation create-stack \
   --template-body file://vpc-nonprod.json \
   --parameters \
     ParameterKey=Environment,ParameterValue=dev \
-    ParameterKey=VpcCIDR,ParameterValue=10.10.0.0/16 \
+    ParameterKey=VpcCIDR,ParameterValue=172.22.0.0/16 \
     ParameterKey=AvailabilityZone1,ParameterValue=us-east-1a \
     ParameterKey=AvailabilityZone2,ParameterValue=us-east-1b \
     ParameterKey=EnableMultiAZ,ParameterValue=false \
@@ -64,7 +64,7 @@ aws cloudformation create-stack \
   --template-body file://vpc-nonprod.json \
   --parameters \
     ParameterKey=Environment,ParameterValue=staging \
-    ParameterKey=VpcCIDR,ParameterValue=10.11.0.0/16 \
+    ParameterKey=VpcCIDR,ParameterValue=172.22.0.0/16 \
     ParameterKey=AvailabilityZone1,ParameterValue=us-east-1a \
     ParameterKey=AvailabilityZone2,ParameterValue=us-east-1b \
     ParameterKey=EnableMultiAZ,ParameterValue=true \
@@ -78,7 +78,7 @@ aws cloudformation create-stack \
   --stack-name oms-vpc-prod \
   --template-body file://vpc-prod.json \
   --parameters \
-    ParameterKey=VpcCIDR,ParameterValue=10.20.0.0/16 \
+    ParameterKey=VpcCIDR,ParameterValue=172.23.0.0/16 \
     ParameterKey=AvailabilityZone1,ParameterValue=us-east-1a \
     ParameterKey=AvailabilityZone2,ParameterValue=us-east-1b \
     ParameterKey=AvailabilityZone3,ParameterValue=us-east-1c \
@@ -141,19 +141,19 @@ Após o deploy, você deve configurar os IPs nas exchanges:
 
 ### Dev (vpc-nonprod.json)
 - ✅ Single-AZ (1 NAT Gateway)
-- ✅ CIDR: 10.10.0.0/16
+- ✅ CIDR: 172.22.0.0/16 (Classe B)
 - ✅ VPC Flow Logs: 7 dias retenção
 - ✅ Custo otimizado
 
 ### Staging (vpc-nonprod.json)
 - ✅ Multi-AZ (2 NAT Gateways)
-- ✅ CIDR: 10.11.0.0/16
+- ✅ CIDR: 172.22.0.0/16 (Classe B)
 - ✅ VPC Flow Logs: 14 dias retenção
 - ✅ Simula produção
 
 ### Production (vpc-prod.json)
 - ✅ Multi-AZ obrigatório (2-3 AZs)
-- ✅ CIDR: 10.20.0.0/16
+- ✅ CIDR: 172.23.0.0/16 (Classe B)
 - ✅ VPC Flow Logs: 30 dias retenção
 - ✅ Tags "DoNotDelete" nos Elastic IPs
 - ✅ Enhanced monitoring

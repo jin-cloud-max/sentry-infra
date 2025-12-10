@@ -367,4 +367,4 @@ cloudformation/
 |----------|----------|-----------------|
 | dev | 172.22.0.0/16 | Single-AZ, recursos minimos |
 | staging | 172.22.0.0/16 | Multi-AZ opcional |
-| prod | 10.x.x.x/16 | Multi-AZ, PITR, backups |
+| prod | 172.23.0.0/16 | Multi-AZ, PITR, backups |
