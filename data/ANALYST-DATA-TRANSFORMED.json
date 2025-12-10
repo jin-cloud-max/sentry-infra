@@ -1,0 +1,123 @@
+{
+  "comment": "DynamoDB items ready to insert - Copy each item separately to AWS Console",
+  "items": [
+    {
+      "comment": "Product Item - Product 1 with analyst_001",
+      "item": {
+        "PK": {
+          "S": "PRODUCT#1"
+        },
+        "SK": {
+          "S": "CONFIG"
+        },
+        "entity_type": {
+          "S": "PRODUCT"
+        },
+        "id": {
+          "S": "1"
+        },
+        "name": {
+          "S": "Product Type 3"
+        },
+        "type": {
+          "S": "TYPE_3"
+        },
+        "factor": {
+          "N": "10"
+        },
+        "multiplier": {
+          "N": "50"
+        },
+        "market_type": {
+          "S": "futures"
+        },
+        "position_mode": {
+          "S": "hedging"
+        },
+        "symbols": {
+          "L": [
+            {"S": "BTCUSDT"},
+            {"S": "ETHUSDT"}
+          ]
+        },
+        "real_account": {
+          "BOOL": true
+        },
+        "status": {
+          "S": "active"
+        },
+        "created_at": {
+          "S": "2025-10-28T00:00:00Z"
+        },
+        "updated_at": {
+          "S": "2025-10-28T00:00:00Z"
+        },
+        "metadata": {
+          "S": "{\"id\":\"1\",\"name\":\"Product Type 3\",\"type\":\"TYPE_3\",\"factor\":10,\"multiplier\":50,\"market_type\":\"futures\",\"position_mode\":\"hedging\",\"symbols\":[\"BTCUSDT\",\"ETHUSDT\"],\"real_account\":true,\"status\":\"active\",\"analyst\":{\"id\":\"analyst_001\",\"exchange\":\"bitget\",\"credentials\":{\"api_key\":\"bg_30c19bc6a65a72fe21f8dc33fb7cb567\",\"secret_key\":\"39e67f0fe90f52f17fb28ce3c8b2e6ff66f89dd5c55e5e8c6bc3ba9ebddaa18b\",\"passphrase\":\"jin1050!\"}},\"created_at\":\"2025-10-28T00:00:00Z\",\"updated_at\":\"2025-10-28T00:00:00Z\"}"
+        }
+      }
+    },
+    {
+      "comment": "Product Item - Product 2 with analyst_002",
+      "item": {
+        "PK": {
+          "S": "PRODUCT#2"
+        },
+        "SK": {
+          "S": "CONFIG"
+        },
+        "entity_type": {
+          "S": "PRODUCT"
+        },
+        "id": {
+          "S": "2"
+        },
+        "name": {
+          "S": "Product Type 2"
+        },
+        "type": {
+          "S": "TYPE_2"
+        },
+        "factor": {
+          "N": "5"
+        },
+        "multiplier": {
+          "N": "30"
+        },
+        "market_type": {
+          "S": "futures"
+        },
+        "position_mode": {
+          "S": "one_way"
+        },
+        "symbols": {
+          "L": [
+            {"S": "SOLUSDT"},
+            {"S": "ADAUSDT"}
+          ]
+        },
+        "real_account": {
+          "BOOL": true
+        },
+        "status": {
+          "S": "active"
+        },
+        "created_at": {
+          "S": "2025-10-28T00:00:00Z"
+        },
+        "updated_at": {
+          "S": "2025-10-28T00:00:00Z"
+        },
+        "metadata": {
+          "S": "{\"id\":\"2\",\"name\":\"Product Type 2\",\"type\":\"TYPE_2\",\"factor\":5,\"multiplier\":30,\"market_type\":\"futures\",\"position_mode\":\"one_way\",\"symbols\":[\"SOLUSDT\",\"ADAUSDT\"],\"real_account\":true,\"status\":\"active\",\"analyst\":{\"id\":\"analyst_002\",\"exchange\":\"bitget\",\"credentials\":{\"api_key\":\"bg_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6\",\"secret_key\":\"1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef\",\"passphrase\":\"secure_pass_456\"}},\"created_at\":\"2025-10-28T00:00:00Z\",\"updated_at\":\"2025-10-28T00:00:00Z\"}"
+        }
+      }
+    }
+  ],
+
+  "instructions": {
+    "console_insert": "AWS Console → DynamoDB → Tables → oms_config_dev → Actions → Create item → JSON view → Paste one item at a time",
+    "cli_insert": "Save each item to a file (e.g., product1.json) and use: aws dynamodb put-item --table-name oms_config_dev --item file://product1.json",
+    "note": "The metadata field contains the full product object with nested analyst credentials. Ensure proper access controls are configured on the DynamoDB table."
+  }
+}

@@ -1,0 +1,689 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "ECS Cluster for Gateway (WebSocket, APIs) - Sentry",
+  "Parameters": {
+    "ProjectName": {
+      "Type": "String",
+      "Default": "sentry",
+      "Description": "Project name"
+    },
+    "Environment": {
+      "Type": "String",
+      "AllowedValues": ["dev", "staging", "prod"],
+      "Description": "Deployment environment"
+    },
+    "VPCStackName": {
+      "Type": "String",
+      "Description": "VPC stack name to import outputs"
+    },
+    "InstanceType": {
+      "Type": "String",
+      "Default": "t4g.small",
+      "AllowedValues": [
+        "t4g.micro",
+        "t4g.small",
+        "t4g.medium",
+        "t4g.large",
+        "t4g.xlarge",
+        "c7g.medium",
+        "c7g.large",
+        "c7g.xlarge",
+        "c7g.2xlarge"
+      ],
+      "Description": "EC2 ARM64 (Graviton) instance type for Gateway cluster"
+    },
+    "ECSOptimizedAMI": {
+      "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
+      "Default": "/aws/service/ecs/optimized-ami/amazon-linux-2023/arm64/recommended/image_id",
+      "Description": "ECS-optimized Amazon Linux 2023 ARM64 AMI (auto-updated via SSM Parameter Store)"
+    },
+    "MinSize": {
+      "Type": "Number",
+      "Default": 1,
+      "MinValue": 1,
+      "Description": "Minimum number of instances in Auto Scaling Group"
+    },
+    "MaxSize": {
+      "Type": "Number",
+      "Default": 4,
+      "MinValue": 1,
+      "Description": "Maximum number of instances in Auto Scaling Group"
+    },
+    "DesiredCapacity": {
+      "Type": "Number",
+      "Default": 2,
+      "MinValue": 1,
+      "Description": "Desired capacity of Auto Scaling Group"
+    },
+    "SQSQueueNames": {
+      "Type": "CommaDelimitedList",
+      "Description": "Comma-separated list of SQS queue names (e.g., orders-queue,websocket-events-queue)"
+    },
+    "DynamoDBTableNames": {
+      "Type": "CommaDelimitedList",
+      "Description": "Comma-separated list of DynamoDB table names"
+    },
+    "KeyPairName": {
+      "Type": "String",
+      "Description": "Key Pair name for SSH access to instances (optional)",
+      "Default": ""
+    },
+    "ALBSecurityGroupId": {
+      "Type": "String",
+      "Description": "ALB Security Group ID to allow inbound traffic from ALB (optional - leave empty if no ALB)",
+      "Default": ""
+    }
+  },
+  "Conditions": {
+    "IsProd": {
+      "Fn::Equals": [{ "Ref": "Environment" }, "prod"]
+    },
+    "HasKeyPair": {
+      "Fn::Not": [{ "Fn::Equals": [{ "Ref": "KeyPairName" }, ""] }]
+    },
+    "HasALB": {
+      "Fn::Not": [{ "Fn::Equals": [{ "Ref": "ALBSecurityGroupId" }, ""] }]
+    }
+  },
+    "Resources": {
+    "ECSCluster": {
+      "Type": "AWS::ECS::Cluster",
+      "Properties": {
+        "ClusterName": {
+          "Fn::Sub": "${ProjectName}-gateway-${Environment}"
+        },
+        "ClusterSettings": [
+          {
+            "Name": "containerInsights",
+            "Value": {
+              "Fn::If": ["IsProd", "enabled", "disabled"]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-gateway-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": { "Ref": "Environment" }
+          },
+          {
+            "Key": "Project",
+            "Value": { "Ref": "ProjectName" }
+          },
+          {
+            "Key": "WorkloadType",
+            "Value": "Gateway"
+          }
+        ]
+      }
+    },
+    "ECSInstanceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "${ProjectName}-gateway-instance-role-${Environment}"
+        },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ec2.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role",
+          "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy",
+          "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+        ],
+        "Tags": [
+          {
+            "Key": "Environment",
+            "Value": { "Ref": "Environment" }
+          },
+          {
+            "Key": "Project",
+            "Value": { "Ref": "ProjectName" }
+          }
+        ]
+      }
+    },
+    "ECSInstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "InstanceProfileName": {
+          "Fn::Sub": "${ProjectName}-gateway-instance-profile-${Environment}"
+        },
+        "Roles": [{ "Ref": "ECSInstanceRole" }]
+      }
+    },
+    "ECSTaskExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "${ProjectName}-gateway-task-execution-role-${Environment}"
+        },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+        ],
+        "Policies": [
+          {
+            "PolicyName": "SecretsManagerAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:DescribeSecret"
+                  ],
+                  "Resource": [
+                    { "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}/${Environment}*" },
+                    { "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}/${Environment}/*" }
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "kms:Decrypt",
+                    "kms:DescribeKey"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/*"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "kms:ViaService": {
+                        "Fn::Sub": "secretsmanager.${AWS::Region}.amazonaws.com"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "S3EnvironmentFilesAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject"
+                  ],
+                  "Resource": "arn:aws:s3:::*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetBucketLocation"
+                  ],
+                  "Resource": "arn:aws:s3:::*"
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Environment",
+            "Value": { "Ref": "Environment" }
+          },
+          {
+            "Key": "Project",
+            "Value": { "Ref": "ProjectName" }
+          }
+        ]
+      }
+    },
+    "ECSTaskRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "${ProjectName}-gateway-task-role-${Environment}"
+        },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "SQSAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "sqs:SendMessage",
+                    "sqs:ReceiveMessage",
+                    "sqs:DeleteMessage",
+                    "sqs:GetQueueAttributes",
+                    "sqs:GetQueueUrl",
+                    "sqs:ChangeMessageVisibility",
+                    "sqs:PurgeQueue"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:*"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "DynamoDBAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:BatchGetItem",
+                    "dynamodb:BatchWriteItem",
+                    "dynamodb:DeleteItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DescribeTable",
+                    "dynamodb:ConditionCheckItem"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/*"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/*/index/*"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "CloudWatchLogsAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents",
+                    "logs:DescribeLogStreams"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/${ProjectName}-gateway-${Environment}*"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "ElastiCacheAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "elasticache:DescribeCacheClusters",
+                    "elasticache:DescribeReplicationGroups"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Environment",
+            "Value": { "Ref": "Environment" }
+          },
+          {
+            "Key": "Project",
+            "Value": { "Ref": "ProjectName" }
+          }
+        ]
+      }
+    },
+    "SecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupName": {
+          "Fn::Sub": "${ProjectName}-gateway-sg-${Environment}"
+        },
+        "GroupDescription": "Security Group for ECS Gateway Cluster",
+        "VpcId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${VPCStackName}-VPCId"
+          }
+        },
+        "SecurityGroupIngress": [],
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "-1",
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-gateway-sg-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": { "Ref": "Environment" }
+          },
+          {
+            "Key": "Project",
+            "Value": { "Ref": "ProjectName" }
+          }
+        ]
+      }
+    },
+    "SecurityGroupIngressFromALB": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Condition": "HasALB",
+      "Properties": {
+        "GroupId": { "Ref": "SecurityGroup" },
+        "IpProtocol": "tcp",
+        "FromPort": 0,
+        "ToPort": 65535,
+        "SourceSecurityGroupId": { "Ref": "ALBSecurityGroupId" },
+        "Description": "Allow all TCP traffic from ALB"
+      }
+    },
+    "LaunchTemplate": {
+      "Type": "AWS::EC2::LaunchTemplate",
+      "Properties": {
+        "LaunchTemplateName": {
+          "Fn::Sub": "${ProjectName}-gateway-lt-${Environment}"
+        },
+        "LaunchTemplateData": {
+          "ImageId": { "Ref": "ECSOptimizedAMI" },
+          "InstanceType": { "Ref": "InstanceType" },
+          "IamInstanceProfile": {
+            "Arn": {
+              "Fn::GetAtt": ["ECSInstanceProfile", "Arn"]
+            }
+          },
+          "KeyName": {
+            "Fn::If": [
+              "HasKeyPair",
+              { "Ref": "KeyPairName" },
+              { "Ref": "AWS::NoValue" }
+            ]
+          },
+          "SecurityGroupIds": [{ "Ref": "SecurityGroup" }],
+          "UserData": {
+            "Fn::Base64": {
+              "Fn::Sub": "#!/bin/bash\necho ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config\necho ECS_ENABLE_TASK_IAM_ROLE=true >> /etc/ecs/ecs.config\necho ECS_ENABLE_TASK_IAM_ROLE_NETWORK_HOST=true >> /etc/ecs/ecs.config\nyum install -y amazon-cloudwatch-agent\n"
+            }
+          },
+          "Monitoring": {
+            "Enabled": {
+              "Fn::If": ["IsProd", true, false]
+            }
+          },
+          "MetadataOptions": {
+            "HttpTokens": "required",
+            "HttpPutResponseHopLimit": 1
+          },
+          "TagSpecifications": [
+            {
+              "ResourceType": "instance",
+              "Tags": [
+                {
+                  "Key": "Name",
+                  "Value": {
+                    "Fn::Sub": "${ProjectName}-gateway-instance-${Environment}"
+                  }
+                },
+                {
+                  "Key": "Environment",
+                  "Value": { "Ref": "Environment" }
+                },
+                {
+                  "Key": "Project",
+                  "Value": { "Ref": "ProjectName" }
+                },
+                {
+                  "Key": "WorkloadType",
+                  "Value": "Gateway"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "AutoScalingGroup": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "Properties": {
+        "AutoScalingGroupName": {
+          "Fn::Sub": "${ProjectName}-gateway-asg-${Environment}"
+        },
+        "LaunchTemplate": {
+          "LaunchTemplateId": { "Ref": "LaunchTemplate" },
+          "Version": {
+            "Fn::GetAtt": ["LaunchTemplate", "LatestVersionNumber"]
+          }
+        },
+        "MinSize": { "Ref": "MinSize" },
+        "MaxSize": { "Ref": "MaxSize" },
+        "DesiredCapacity": { "Ref": "DesiredCapacity" },
+        "HealthCheckType": "EC2",
+        "HealthCheckGracePeriod": 300,
+        "VPCZoneIdentifier": [
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${VPCStackName}-PrivateSubnetFrontendAZ1"
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-gateway-asg-${Environment}"
+            },
+            "PropagateAtLaunch": false
+          },
+          {
+            "Key": "Environment",
+            "Value": { "Ref": "Environment" },
+            "PropagateAtLaunch": true
+          },
+          {
+            "Key": "Project",
+            "Value": { "Ref": "ProjectName" },
+            "PropagateAtLaunch": true
+          }
+        ]
+      },
+      "UpdatePolicy": {
+        "AutoScalingRollingUpdate": {
+          "MinInstancesInService": 1,
+          "MaxBatchSize": 2,
+          "PauseTime": "PT5M",
+          "WaitOnResourceSignals": false
+        }
+      }
+    },
+    "CapacityProvider": {
+      "Type": "AWS::ECS::CapacityProvider",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "${ProjectName}-gateway-cp-${Environment}"
+        },
+        "AutoScalingGroupProvider": {
+          "AutoScalingGroupArn": { "Ref": "AutoScalingGroup" },
+          "ManagedScaling": {
+            "Status": "ENABLED",
+            "TargetCapacity": 80,
+            "MinimumScalingStepSize": 1,
+            "MaximumScalingStepSize": 2
+          },
+          "ManagedTerminationProtection": {
+            "Fn::If": ["IsProd", "ENABLED", "DISABLED"]
+          }
+        },
+        "Tags": [
+          {
+            "Key": "Environment",
+            "Value": { "Ref": "Environment" }
+          },
+          {
+            "Key": "Project",
+            "Value": { "Ref": "ProjectName" }
+          }
+        ]
+      }
+    },
+    "CapacityProviderAssociation": {
+      "Type": "AWS::ECS::ClusterCapacityProviderAssociations",
+      "Properties": {
+        "Cluster": { "Ref": "ECSCluster" },
+        "CapacityProviders": [{ "Ref": "CapacityProvider" }],
+        "DefaultCapacityProviderStrategy": [
+          {
+            "CapacityProvider": { "Ref": "CapacityProvider" },
+            "Weight": 1,
+            "Base": 0
+          }
+        ]
+      }
+    },
+    "CloudWatchLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/ecs/${ProjectName}-gateway-${Environment}"
+        },
+        "RetentionInDays": {
+          "Fn::If": ["IsProd", 30, 7]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "ClusterId": {
+      "Description": "Gateway ECS Cluster ID",
+      "Value": { "Ref": "ECSCluster" },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ClusterId"
+        }
+      }
+    },
+    "ClusterName": {
+      "Description": "Gateway ECS Cluster Name",
+      "Value": {
+        "Fn::Sub": "${ProjectName}-gateway-${Environment}"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ClusterName"
+        }
+      }
+    },
+    "SecurityGroupId": {
+      "Description": "Gateway cluster Security Group ID",
+      "Value": { "Ref": "SecurityGroup" },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-SecurityGroupId"
+        }
+      }
+    },
+    "TaskExecutionRoleArn": {
+      "Description": "Task Execution Role ARN",
+      "Value": {
+        "Fn::GetAtt": ["ECSTaskExecutionRole", "Arn"]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-TaskExecutionRoleArn"
+        }
+      }
+    },
+    "TaskRoleArn": {
+      "Description": "Task Role ARN with application permissions",
+      "Value": {
+        "Fn::GetAtt": ["ECSTaskRole", "Arn"]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-TaskRoleArn"
+        }
+      }
+    },
+    "AutoScalingGroupName": {
+      "Description": "Auto Scaling Group Name",
+      "Value": { "Ref": "AutoScalingGroup" },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-AutoScalingGroupName"
+        }
+      }
+    },
+    "CapacityProviderName": {
+      "Description": "Capacity Provider Name",
+      "Value": { "Ref": "CapacityProvider" },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-CapacityProviderName"
+        }
+      }
+    },
+    "LogGroupName": {
+      "Description": "CloudWatch Log Group Name",
+      "Value": {
+        "Fn::Sub": "/ecs/${ProjectName}-gateway-${Environment}"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-LogGroupName"
+        }
+      }
+    }
+  }
+}

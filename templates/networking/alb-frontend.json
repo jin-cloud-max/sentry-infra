@@ -1,0 +1,311 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Application Load Balancer for Frontend Admin - Sentry OMS",
+  "Parameters": {
+    "ProjectName": {
+      "Type": "String",
+      "Default": "sentry",
+      "Description": "Project name"
+    },
+    "Environment": {
+      "Type": "String",
+      "AllowedValues": [
+        "dev",
+        "staging",
+        "prod"
+      ],
+      "Description": "Deployment environment"
+    },
+    "VPCStackName": {
+      "Type": "String",
+      "Description": "VPC CloudFormation stack name to import VPC ID and Subnets"
+    },
+    "CertificateArn": {
+      "Type": "String",
+      "Default": "",
+      "Description": "ACM Certificate ARN for HTTPS. Leave empty to use HTTP only."
+    }
+  },
+  "Conditions": {
+    "HasCertificate": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "CertificateArn"
+            },
+            ""
+          ]
+        }
+      ]
+    }
+  },
+  "Resources": {
+    "ALBSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupName": {
+          "Fn::Sub": "${ProjectName}-alb-frontend-sg-${Environment}"
+        },
+        "GroupDescription": "Security group for Frontend ALB - add ingress rules manually for allowed IPs",
+        "VpcId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${VPCStackName}-VPCId"
+          }
+        },
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "-1",
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-alb-frontend-sg-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          }
+        ]
+      }
+    },
+    "ApplicationLoadBalancer": {
+      "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "${ProjectName}-frontend-alb-${Environment}"
+        },
+        "Type": "application",
+        "Scheme": "internet-facing",
+        "IpAddressType": "ipv4",
+        "SecurityGroups": [
+          {
+            "Ref": "ALBSecurityGroup"
+          }
+        ],
+        "Subnets": [
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${VPCStackName}-PublicSubnetAZ1"
+            }
+          },
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${VPCStackName}-PublicSubnetAZ2"
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-frontend-alb-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          }
+        ]
+      }
+    },
+    "TargetGroup": {
+      "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "${ProjectName}-frontend-tg-${Environment}"
+        },
+        "Port": 3000,
+        "Protocol": "HTTP",
+        "VpcId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${VPCStackName}-VPCId"
+          }
+        },
+        "TargetType": "instance",
+        "HealthCheckEnabled": true,
+        "HealthCheckPath": "/api/health",
+        "HealthCheckProtocol": "HTTP",
+        "HealthCheckIntervalSeconds": 30,
+        "HealthCheckTimeoutSeconds": 5,
+        "HealthyThresholdCount": 2,
+        "UnhealthyThresholdCount": 3,
+        "Matcher": {
+          "HttpCode": "200"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-frontend-tg-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          }
+        ]
+      }
+    },
+    "HTTPListener": {
+      "Type": "AWS::ElasticLoadBalancingV2::Listener",
+      "Properties": {
+        "LoadBalancerArn": {
+          "Ref": "ApplicationLoadBalancer"
+        },
+        "Port": 80,
+        "Protocol": "HTTP",
+        "DefaultActions": {
+          "Fn::If": [
+            "HasCertificate",
+            [
+              {
+                "Type": "redirect",
+                "RedirectConfig": {
+                  "Protocol": "HTTPS",
+                  "Port": "443",
+                  "StatusCode": "HTTP_301"
+                }
+              }
+            ],
+            [
+              {
+                "Type": "forward",
+                "TargetGroupArn": {
+                  "Ref": "TargetGroup"
+                }
+              }
+            ]
+          ]
+        }
+      }
+    },
+    "HTTPSListener": {
+      "Type": "AWS::ElasticLoadBalancingV2::Listener",
+      "Condition": "HasCertificate",
+      "Properties": {
+        "LoadBalancerArn": {
+          "Ref": "ApplicationLoadBalancer"
+        },
+        "Port": 443,
+        "Protocol": "HTTPS",
+        "SslPolicy": "ELBSecurityPolicy-TLS13-1-2-2021-06",
+        "Certificates": [
+          {
+            "CertificateArn": {
+              "Ref": "CertificateArn"
+            }
+          }
+        ],
+        "DefaultActions": [
+          {
+            "Type": "forward",
+            "TargetGroupArn": {
+              "Ref": "TargetGroup"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "ALBArn": {
+      "Description": "Application Load Balancer ARN",
+      "Value": {
+        "Ref": "ApplicationLoadBalancer"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ALBArn"
+        }
+      }
+    },
+    "ALBDNSName": {
+      "Description": "ALB DNS Name - Use this to access the frontend",
+      "Value": {
+        "Fn::GetAtt": [
+          "ApplicationLoadBalancer",
+          "DNSName"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ALBDNSName"
+        }
+      }
+    },
+    "ALBHostedZoneId": {
+      "Description": "ALB Hosted Zone ID (for Route53 alias records)",
+      "Value": {
+        "Fn::GetAtt": [
+          "ApplicationLoadBalancer",
+          "CanonicalHostedZoneID"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ALBHostedZoneId"
+        }
+      }
+    },
+    "TargetGroupArn": {
+      "Description": "Target Group ARN - Use this in ECS Service",
+      "Value": {
+        "Ref": "TargetGroup"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-TargetGroupArn"
+        }
+      }
+    },
+    "ALBSecurityGroupId": {
+      "Description": "ALB Security Group ID - Add ingress rules for allowed IPs",
+      "Value": {
+        "Ref": "ALBSecurityGroup"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ALBSecurityGroupId"
+        }
+      }
+    }
+  }
+}

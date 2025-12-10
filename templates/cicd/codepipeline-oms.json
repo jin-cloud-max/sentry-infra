@@ -1,0 +1,394 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "CI/CD Pipeline for Sentry OMS Service (Go)",
+  "Parameters": {
+    "Environment": {
+      "Type": "String",
+      "Default": "dev",
+      "AllowedValues": ["dev", "staging", "prod"],
+      "Description": "Environment name"
+    },
+    "ECRRepositoryName": {
+      "Type": "String",
+      "Description": "ECR repository name (e.g., sentry/oms-dev)"
+    },
+    "CodeStarConnectionArn": {
+      "Type": "String",
+      "Description": "ARN of the CodeStar GitHub connection"
+    },
+    "GitHubRepoFullName": {
+      "Type": "String",
+      "Description": "Full name of GitHub repository (owner/repo)"
+    },
+    "GitHubBranch": {
+      "Type": "String",
+      "Default": "main",
+      "Description": "GitHub branch to track"
+    },
+    "ContainerName": {
+      "Type": "String",
+      "Default": "oms-service",
+      "Description": "Container name for ECS task definition"
+    },
+    "GoVersion": {
+      "Type": "String",
+      "Default": "1.23.4",
+      "Description": "Go version for build"
+    },
+    "ECSClusterName": {
+      "Type": "String",
+      "Description": "ECS Cluster name for deployment (e.g., sentry-oms-dev)"
+    },
+    "ECSServiceName": {
+      "Type": "String",
+      "Description": "ECS Service name for deployment (e.g., sentry-oms-service-dev)"
+    }
+  },
+  "Resources": {
+    "ArtifactBucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": {
+          "Fn::Sub": "sentry-oms-artifacts-${Environment}"
+        },
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "DeleteOldArtifacts",
+              "Status": "Enabled",
+              "ExpirationInDays": 30
+            }
+          ]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "Tags": [
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "Project", "Value": "OMS"},
+          {"Key": "Service", "Value": "oms"},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "CodeBuildServiceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "sentry-oms-codebuild-${Environment}"
+        },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"Service": "codebuild.amazonaws.com"},
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser"
+        ],
+        "Policies": [
+          {
+            "PolicyName": "CodeBuildPolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/sentry-oms-*"
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject",
+                    "s3:GetObjectVersion"
+                  ],
+                  "Resource": {"Fn::Sub": "${ArtifactBucket.Arn}/*"}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["s3:ListBucket"],
+                  "Resource": {"Fn::GetAtt": ["ArtifactBucket", "Arn"]}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["ecr:GetAuthorizationToken"],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ecr:BatchCheckLayerAvailability",
+                    "ecr:GetDownloadUrlForLayer",
+                    "ecr:BatchGetImage",
+                    "ecr:PutImage",
+                    "ecr:InitiateLayerUpload",
+                    "ecr:UploadLayerPart",
+                    "ecr:CompleteLayerUpload"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ECRRepositoryName}"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "Project", "Value": "OMS"},
+          {"Key": "Service", "Value": "oms"}
+        ]
+      }
+    },
+    "CodePipelineServiceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "sentry-oms-pipeline-${Environment}"
+        },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"Service": "codepipeline.amazonaws.com"},
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "CodePipelinePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject",
+                    "s3:GetObjectVersion",
+                    "s3:GetBucketVersioning"
+                  ],
+                  "Resource": [
+                    {"Fn::GetAtt": ["ArtifactBucket", "Arn"]},
+                    {"Fn::Sub": "${ArtifactBucket.Arn}/*"}
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "codebuild:BatchGetBuilds",
+                    "codebuild:StartBuild"
+                  ],
+                  "Resource": {"Fn::GetAtt": ["CodeBuildProject", "Arn"]}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["codestar-connections:UseConnection"],
+                  "Resource": {"Ref": "CodeStarConnectionArn"}
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ecs:DescribeServices",
+                    "ecs:DescribeTaskDefinition",
+                    "ecs:DescribeTasks",
+                    "ecs:ListTasks",
+                    "ecs:RegisterTaskDefinition",
+                    "ecs:UpdateService",
+                    "ecs:TagResource"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["iam:PassRole"],
+                  "Resource": "*",
+                  "Condition": {
+                    "StringEqualsIfExists": {
+                      "iam:PassedToService": ["ecs-tasks.amazonaws.com"]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "Project", "Value": "OMS"},
+          {"Key": "Service", "Value": "oms"}
+        ]
+      }
+    },
+    "CodeBuildProject": {
+      "Type": "AWS::CodeBuild::Project",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "sentry-oms-build-${Environment}"
+        },
+        "Description": "Build, test and push OMS Docker image to ECR",
+        "ServiceRole": {"Fn::GetAtt": ["CodeBuildServiceRole", "Arn"]},
+        "Artifacts": {"Type": "CODEPIPELINE"},
+        "Environment": {
+          "Type": "ARM_CONTAINER",
+          "ComputeType": "BUILD_GENERAL1_SMALL",
+          "Image": "aws/codebuild/amazonlinux2-aarch64-standard:3.0",
+          "PrivilegedMode": true,
+          "EnvironmentVariables": [
+            {"Name": "AWS_ACCOUNT_ID", "Value": {"Ref": "AWS::AccountId"}},
+            {"Name": "AWS_DEFAULT_REGION", "Value": {"Ref": "AWS::Region"}},
+            {"Name": "ECR_REPOSITORY_NAME", "Value": {"Ref": "ECRRepositoryName"}},
+            {"Name": "ENVIRONMENT", "Value": {"Ref": "Environment"}},
+            {"Name": "CONTAINER_NAME", "Value": {"Ref": "ContainerName"}},
+            {"Name": "GO_VERSION", "Value": {"Ref": "GoVersion"}}
+          ]
+        },
+        "Source": {
+          "Type": "CODEPIPELINE",
+          "BuildSpec": "buildspec.yml"
+        },
+        "TimeoutInMinutes": 30,
+        "LogsConfig": {
+          "CloudWatchLogs": {
+            "Status": "ENABLED",
+            "GroupName": {
+              "Fn::Sub": "/aws/codebuild/sentry-oms-${Environment}"
+            }
+          }
+        },
+        "Tags": [
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "Project", "Value": "OMS"},
+          {"Key": "Service", "Value": "oms"},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    },
+    "Pipeline": {
+      "Type": "AWS::CodePipeline::Pipeline",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "sentry-oms-${Environment}"
+        },
+        "RoleArn": {"Fn::GetAtt": ["CodePipelineServiceRole", "Arn"]},
+        "ArtifactStore": {
+          "Type": "S3",
+          "Location": {"Ref": "ArtifactBucket"}
+        },
+        "Stages": [
+          {
+            "Name": "Source",
+            "Actions": [
+              {
+                "Name": "GitHub",
+                "ActionTypeId": {
+                  "Category": "Source",
+                  "Owner": "AWS",
+                  "Provider": "CodeStarSourceConnection",
+                  "Version": "1"
+                },
+                "Configuration": {
+                  "ConnectionArn": {"Ref": "CodeStarConnectionArn"},
+                  "FullRepositoryId": {"Ref": "GitHubRepoFullName"},
+                  "BranchName": {"Ref": "GitHubBranch"},
+                  "OutputArtifactFormat": "CODE_ZIP",
+                  "DetectChanges": true
+                },
+                "OutputArtifacts": [{"Name": "SourceOutput"}]
+              }
+            ]
+          },
+          {
+            "Name": "Build",
+            "Actions": [
+              {
+                "Name": "Build",
+                "ActionTypeId": {
+                  "Category": "Build",
+                  "Owner": "AWS",
+                  "Provider": "CodeBuild",
+                  "Version": "1"
+                },
+                "Configuration": {"ProjectName": {"Ref": "CodeBuildProject"}},
+                "InputArtifacts": [{"Name": "SourceOutput"}],
+                "OutputArtifacts": [{"Name": "BuildOutput"}]
+              }
+            ]
+          },
+          {
+            "Name": "Deploy",
+            "Actions": [
+              {
+                "Name": "DeployToECS",
+                "ActionTypeId": {
+                  "Category": "Deploy",
+                  "Owner": "AWS",
+                  "Provider": "ECS",
+                  "Version": "1"
+                },
+                "Configuration": {
+                  "ClusterName": {"Ref": "ECSClusterName"},
+                  "ServiceName": {"Ref": "ECSServiceName"},
+                  "FileName": "imagedefinitions.json"
+                },
+                "InputArtifacts": [{"Name": "BuildOutput"}]
+              }
+            ]
+          }
+        ],
+        "Tags": [
+          {"Key": "Environment", "Value": {"Ref": "Environment"}},
+          {"Key": "Project", "Value": "OMS"},
+          {"Key": "Service", "Value": "oms"},
+          {"Key": "ManagedBy", "Value": "CloudFormation"}
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "PipelineName": {
+      "Description": "Pipeline name",
+      "Value": {"Ref": "Pipeline"},
+      "Export": {"Name": {"Fn::Sub": "${AWS::StackName}-PipelineName"}}
+    },
+    "PipelineUrl": {
+      "Description": "Pipeline console URL",
+      "Value": {
+        "Fn::Sub": "https://console.aws.amazon.com/codesuite/codepipeline/pipelines/${Pipeline}/view"
+      }
+    },
+    "CodeBuildProjectName": {
+      "Description": "CodeBuild project name",
+      "Value": {"Ref": "CodeBuildProject"}
+    }
+  }
+}

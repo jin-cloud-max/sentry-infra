@@ -1,0 +1,498 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "ElastiCache Redis for Sentry - Cache layer for order mappings, positions, instruments, and idempotency",
+  "Parameters": {
+    "Environment": {
+      "Type": "String",
+      "AllowedValues": [
+        "dev",
+        "staging",
+        "prod"
+      ],
+      "Description": "Environment name"
+    },
+    "VPCStackName": {
+      "Type": "String",
+      "Description": "Name of the VPC CloudFormation stack to import values from"
+    },
+    "NodeType": {
+      "Type": "String",
+      "Default": "cache.t4g.micro",
+      "AllowedValues": [
+        "cache.t4g.micro",
+        "cache.t4g.small",
+        "cache.t4g.medium",
+        "cache.m7g.large",
+        "cache.r7g.large"
+      ],
+      "Description": "Node type ARM64: t4g (dev), m7g (prod balanceado), r7g (prod alta memória)"
+    },
+    "NumCacheNodes": {
+      "Type": "Number",
+      "Default": 1,
+      "MinValue": 1,
+      "MaxValue": 6,
+      "Description": "Number of cache nodes (1 for dev, 2-3 for prod with read replicas)"
+    },
+    "EngineVersion": {
+      "Type": "String",
+      "Default": "7.1",
+      "AllowedValues": [
+        "7.1",
+        "7.0",
+        "6.2"
+      ],
+      "Description": "Redis engine version (7.1 recommended for latest features)"
+    },
+    "SnapshotRetentionLimit": {
+      "Type": "Number",
+      "Default": 0,
+      "MinValue": 0,
+      "MaxValue": 35,
+      "Description": "Number of days to retain snapshots (0 for dev, 7+ for prod)"
+    },
+    "AutomaticFailoverEnabled": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
+      "Description": "Enable automatic failover (false for dev, true for prod)"
+    },
+    "ProjectName": {
+      "Type": "String",
+      "Default": "sentry",
+      "Description": "Project name for resource naming"
+    }
+  },
+  "Metadata": {
+    "AWS::CloudFormation::Interface": {
+      "ParameterGroups": [
+        {
+          "Label": {
+            "default": "Environment Configuration"
+          },
+          "Parameters": [
+            "Environment",
+            "ProjectName",
+            "VPCStackName"
+          ]
+        },
+        {
+          "Label": {
+            "default": "Redis Configuration"
+          },
+          "Parameters": [
+            "NodeType",
+            "NumCacheNodes",
+            "EngineVersion"
+          ]
+        },
+        {
+          "Label": {
+            "default": "Backup and HA"
+          },
+          "Parameters": [
+            "SnapshotRetentionLimit",
+            "AutomaticFailoverEnabled"
+          ]
+        }
+      ],
+      "ParameterLabels": {
+        "Environment": {
+          "default": "Environment Name"
+        },
+        "ProjectName": {
+          "default": "Project Name"
+        },
+        "VPCStackName": {
+          "default": "VPC Stack Name"
+        },
+        "NodeType": {
+          "default": "Cache Node Type"
+        },
+        "NumCacheNodes": {
+          "default": "Number of Cache Nodes"
+        },
+        "EngineVersion": {
+          "default": "Redis Engine Version"
+        },
+        "SnapshotRetentionLimit": {
+          "default": "Snapshot Retention (days)"
+        },
+        "AutomaticFailoverEnabled": {
+          "default": "Automatic Failover"
+        }
+      }
+    }
+  },
+  "Mappings": {
+    "RedisVersionMap": {
+      "7.1": {
+        "Family": "redis7"
+      },
+      "7.0": {
+        "Family": "redis7"
+      },
+      "6.2": {
+        "Family": "redis6.x"
+      }
+    }
+  },
+  "Conditions": {
+    "IsProd": {
+      "Fn::Equals": [
+        {
+          "Ref": "Environment"
+        },
+        "prod"
+      ]
+    },
+    "EnableFailover": {
+      "Fn::Equals": [
+        {
+          "Ref": "AutomaticFailoverEnabled"
+        },
+        "true"
+      ]
+    },
+    "EnableBackups": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "SnapshotRetentionLimit"
+            },
+            0
+          ]
+        }
+      ]
+    },
+    "IsMultiNode": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "NumCacheNodes"
+            },
+            1
+          ]
+        }
+      ]
+    }
+  },
+  "Resources": {
+    "RedisSubnetGroup": {
+      "Type": "AWS::ElastiCache::SubnetGroup",
+      "Properties": {
+        "Description": {
+          "Fn::Sub": "Subnet group for ${ProjectName} Redis cluster - ${Environment}"
+        },
+        "SubnetIds": [
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${VPCStackName}-PrivateSubnetOMSAZ1"
+            }
+          },
+          {
+            "Fn::If": [
+              "IsMultiNode",
+              {
+                "Fn::ImportValue": {
+                  "Fn::Sub": "${VPCStackName}-PrivateSubnetOMSAZ2"
+                }
+              },
+              {
+                "Ref": "AWS::NoValue"
+              }
+            ]
+          }
+        ],
+        "CacheSubnetGroupName": {
+          "Fn::Sub": "${ProjectName}-redis-subnet-group-${Environment}"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-redis-subnet-group-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          }
+        ]
+      }
+    },
+    "RedisSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupName": {
+          "Fn::Sub": "${ProjectName}-redis-sg-${Environment}"
+        },
+        "GroupDescription": "Security group for ElastiCache Redis cluster",
+        "VpcId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${VPCStackName}-VPCId"
+          }
+        },
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 6379,
+            "ToPort": 6379,
+            "CidrIp": {
+              "Fn::ImportValue": {
+                "Fn::Sub": "${VPCStackName}-VPCCidr"
+              }
+            },
+            "Description": "Allow Redis access from within VPC"
+          }
+        ],
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "-1",
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-redis-sg-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          }
+        ]
+      }
+    },
+    "RedisParameterGroup": {
+      "Type": "AWS::ElastiCache::ParameterGroup",
+      "Properties": {
+        "CacheParameterGroupFamily": {
+          "Fn::FindInMap": [
+            "RedisVersionMap",
+            {
+              "Ref": "EngineVersion"
+            },
+            "Family"
+          ]
+        },
+        "Description": {
+          "Fn::Sub": "Custom parameter group for ${ProjectName} Redis - ${Environment}"
+        },
+        "Properties": {
+          "maxmemory-policy": "allkeys-lru",
+          "timeout": "300",
+          "tcp-keepalive": "300",
+          "maxmemory-samples": "5",
+          "notify-keyspace-events": ""
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-redis-params-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          }
+        ]
+      }
+    },
+    "RedisReplicationGroup": {
+      "Type": "AWS::ElastiCache::ReplicationGroup",
+      "Properties": {
+        "ReplicationGroupId": {
+          "Fn::Sub": "sentry-redis-${Environment}"
+        },
+        "ReplicationGroupDescription": {
+          "Fn::Sub": "Redis cluster for ${ProjectName} - ${Environment}"
+        },
+        "Engine": "redis",
+        "EngineVersion": {
+          "Ref": "EngineVersion"
+        },
+        "CacheNodeType": {
+          "Ref": "NodeType"
+        },
+        "NumCacheClusters": {
+          "Ref": "NumCacheNodes"
+        },
+        "AutomaticFailoverEnabled": {
+          "Ref": "AutomaticFailoverEnabled"
+        },
+        "MultiAZEnabled": {
+          "Fn::If": [
+            "IsMultiNode",
+            true,
+            false
+          ]
+        },
+        "CacheSubnetGroupName": {
+          "Ref": "RedisSubnetGroup"
+        },
+        "SecurityGroupIds": [
+          {
+            "Ref": "RedisSecurityGroup"
+          }
+        ],
+        "CacheParameterGroupName": {
+          "Ref": "RedisParameterGroup"
+        },
+        "Port": 6379,
+        "SnapshotRetentionLimit": {
+          "Ref": "SnapshotRetentionLimit"
+        },
+        "SnapshotWindow": "03:00-05:00",
+        "PreferredMaintenanceWindow": "sun:05:00-sun:07:00",
+        "AtRestEncryptionEnabled": {
+          "Fn::If": [
+            "IsProd",
+            true,
+            false
+          ]
+        },
+        "TransitEncryptionEnabled": {
+          "Fn::If": [
+            "IsProd",
+            true,
+            false
+          ]
+        },
+        "AutoMinorVersionUpgrade": true,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "evo-redis-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "RedisEndpoint": {
+      "Description": "Redis primary endpoint address",
+      "Value": {
+        "Fn::GetAtt": [
+          "RedisReplicationGroup",
+          "PrimaryEndPoint.Address"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-RedisEndpoint"
+        }
+      }
+    },
+    "RedisPort": {
+      "Description": "Redis port",
+      "Value": {
+        "Fn::GetAtt": [
+          "RedisReplicationGroup",
+          "PrimaryEndPoint.Port"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-RedisPort"
+        }
+      }
+    },
+    "RedisReaderEndpoint": {
+      "Condition": "IsMultiNode",
+      "Description": "Redis reader endpoint address (for read replicas)",
+      "Value": {
+        "Fn::GetAtt": [
+          "RedisReplicationGroup",
+          "ReaderEndPoint.Address"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-RedisReaderEndpoint"
+        }
+      }
+    },
+    "RedisSecurityGroupId": {
+      "Description": "Security Group ID for Redis cluster",
+      "Value": {
+        "Ref": "RedisSecurityGroup"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-RedisSecurityGroupId"
+        }
+      }
+    },
+    "RedisReplicationGroupId": {
+      "Description": "Redis Replication Group ID",
+      "Value": {
+        "Ref": "RedisReplicationGroup"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-RedisReplicationGroupId"
+        }
+      }
+    }
+  }
+}

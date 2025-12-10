@@ -1,0 +1,705 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "VPC for Sentry - Production - High availability network infrastructure with multi-AZ deployment, enhanced monitoring, and additional security controls",
+
+  "Parameters": {
+    "VpcCIDR": {
+      "Type": "String",
+      "Default": "172.23.0.0/16",
+      "Description": "CIDR block for production VPC",
+      "AllowedPattern": "^172\\.23\\.0\\.0/16$",
+      "ConstraintDescription": "Must be 172.23.0.0/16 for production"
+    },
+    "AvailabilityZone1": {
+      "Type": "AWS::EC2::AvailabilityZone::Name",
+      "Description": "First Availability Zone (required)"
+    },
+    "AvailabilityZone2": {
+      "Type": "AWS::EC2::AvailabilityZone::Name",
+      "Description": "Second Availability Zone (required for production)"
+    },
+    "AvailabilityZone3": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Third Availability Zone (optional, for enhanced HA)"
+    },
+    "ProjectName": {
+      "Type": "String",
+      "Default": "oms-spider",
+      "Description": "Project name for resource naming"
+    },
+    "EnableVPCFlowLogs": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["true", "false"],
+      "Description": "Enable VPC Flow Logs for network traffic monitoring (set to true when needed)"
+    }
+  },
+
+  "Metadata": {
+    "AWS::CloudFormation::Interface": {
+      "ParameterGroups": [
+        {
+          "Label": { "default": "Environment Configuration" },
+          "Parameters": ["ProjectName"]
+        },
+        {
+          "Label": { "default": "Network Configuration" },
+          "Parameters": ["VpcCIDR", "AvailabilityZone1", "AvailabilityZone2", "AvailabilityZone3"]
+        },
+        {
+          "Label": { "default": "Monitoring & Compliance" },
+          "Parameters": ["EnableVPCFlowLogsToS3"]
+        }
+      ],
+      "ParameterLabels": {
+        "VpcCIDR": { "default": "VPC CIDR Block" },
+        "AvailabilityZone1": { "default": "Primary AZ" },
+        "AvailabilityZone2": { "default": "Secondary AZ" },
+        "AvailabilityZone3": { "default": "Tertiary AZ (Optional)" },
+        "ProjectName": { "default": "Project Name" },
+        "EnableVPCFlowLogsToS3": { "default": "Enable S3 Flow Logs" }
+      }
+    }
+  },
+
+  "Conditions": {
+    "HasThirdAZ": { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "AvailabilityZone3" }, ""] }] },
+    "EnableFlowLogs": { "Fn::Equals": [{ "Ref": "EnableVPCFlowLogs" }, "true"] }
+  },
+
+  "Resources": {
+    "VPC": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "CidrBlock": { "Ref": "VpcCIDR" },
+        "EnableDnsHostnames": true,
+        "EnableDnsSupport": true,
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-vpc-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "ManagedBy", "Value": "CloudFormation" },
+          { "Key": "Purpose", "Value": "Production VPC for OMS Spider" },
+          { "Key": "Compliance", "Value": "Production-Grade" }
+        ]
+      }
+    },
+
+    "InternetGateway": {
+      "Type": "AWS::EC2::InternetGateway",
+      "Properties": {
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-igw-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "AttachGateway": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "InternetGatewayId": { "Ref": "InternetGateway" }
+      }
+    },
+
+    "PublicSubnetAZ1": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "CidrBlock": { "Fn::Select": [0, { "Fn::Cidr": [{ "Ref": "VpcCIDR" }, 9, 8] }] },
+        "AvailabilityZone": { "Ref": "AvailabilityZone1" },
+        "MapPublicIpOnLaunch": true,
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-public-subnet-az1-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "Type", "Value": "Public" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "PublicSubnetAZ2": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "CidrBlock": { "Fn::Select": [1, { "Fn::Cidr": [{ "Ref": "VpcCIDR" }, 9, 8] }] },
+        "AvailabilityZone": { "Ref": "AvailabilityZone2" },
+        "MapPublicIpOnLaunch": true,
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-public-subnet-az2-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "Type", "Value": "Public" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "PublicSubnetAZ3": {
+      "Type": "AWS::EC2::Subnet",
+      "Condition": "HasThirdAZ",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "CidrBlock": { "Fn::Select": [2, { "Fn::Cidr": [{ "Ref": "VpcCIDR" }, 9, 8] }] },
+        "AvailabilityZone": { "Ref": "AvailabilityZone3" },
+        "MapPublicIpOnLaunch": true,
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-public-subnet-az3-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "Type", "Value": "Public" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "PrivateSubnetOMSAZ1": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "CidrBlock": { "Fn::Select": [3, { "Fn::Cidr": [{ "Ref": "VpcCIDR" }, 9, 8] }] },
+        "AvailabilityZone": { "Ref": "AvailabilityZone1" },
+        "MapPublicIpOnLaunch": false,
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-private-oms-subnet-az1-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "Type", "Value": "Private" },
+          { "Key": "Purpose", "Value": "OMS Cluster" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "PrivateSubnetOMSAZ2": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "CidrBlock": { "Fn::Select": [4, { "Fn::Cidr": [{ "Ref": "VpcCIDR" }, 9, 8] }] },
+        "AvailabilityZone": { "Ref": "AvailabilityZone2" },
+        "MapPublicIpOnLaunch": false,
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-private-oms-subnet-az2-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "Type", "Value": "Private" },
+          { "Key": "Purpose", "Value": "OMS Cluster" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "PrivateSubnetOMSAZ3": {
+      "Type": "AWS::EC2::Subnet",
+      "Condition": "HasThirdAZ",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "CidrBlock": { "Fn::Select": [5, { "Fn::Cidr": [{ "Ref": "VpcCIDR" }, 9, 8] }] },
+        "AvailabilityZone": { "Ref": "AvailabilityZone3" },
+        "MapPublicIpOnLaunch": false,
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-private-oms-subnet-az3-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "Type", "Value": "Private" },
+          { "Key": "Purpose", "Value": "OMS Cluster" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "PrivateSubnetFrontendAZ1": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "CidrBlock": { "Fn::Select": [6, { "Fn::Cidr": [{ "Ref": "VpcCIDR" }, 9, 8] }] },
+        "AvailabilityZone": { "Ref": "AvailabilityZone1" },
+        "MapPublicIpOnLaunch": false,
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-private-frontend-subnet-az1-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "Type", "Value": "Private" },
+          { "Key": "Purpose", "Value": "Frontend/WebSocket Cluster" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "PrivateSubnetFrontendAZ2": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "CidrBlock": { "Fn::Select": [7, { "Fn::Cidr": [{ "Ref": "VpcCIDR" }, 9, 8] }] },
+        "AvailabilityZone": { "Ref": "AvailabilityZone2" },
+        "MapPublicIpOnLaunch": false,
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-private-frontend-subnet-az2-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "Type", "Value": "Private" },
+          { "Key": "Purpose", "Value": "Frontend/WebSocket Cluster" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "PrivateSubnetFrontendAZ3": {
+      "Type": "AWS::EC2::Subnet",
+      "Condition": "HasThirdAZ",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "CidrBlock": { "Fn::Select": [8, { "Fn::Cidr": [{ "Ref": "VpcCIDR" }, 9, 8] }] },
+        "AvailabilityZone": { "Ref": "AvailabilityZone3" },
+        "MapPublicIpOnLaunch": false,
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-private-frontend-subnet-az3-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "Type", "Value": "Private" },
+          { "Key": "Purpose", "Value": "Frontend/WebSocket Cluster" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "ElasticIPNAT1": {
+      "Type": "AWS::EC2::EIP",
+      "DependsOn": "AttachGateway",
+      "Properties": {
+        "Domain": "vpc",
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-eip-nat1-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "Purpose", "Value": "NAT Gateway AZ1 - Outbound Internet Access IP 1" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" },
+          { "Key": "Critical", "Value": "true" },
+          { "Key": "DoNotDelete", "Value": "true" }
+        ]
+      }
+    },
+
+    "ElasticIPNAT1Secondary": {
+      "Type": "AWS::EC2::EIP",
+      "DependsOn": "AttachGateway",
+      "Properties": {
+        "Domain": "vpc",
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-eip-nat1-secondary-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "Purpose", "Value": "NAT Gateway AZ1 - Outbound Internet Access IP 2 (Secondary)" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" },
+          { "Key": "Critical", "Value": "true" },
+          { "Key": "DoNotDelete", "Value": "true" }
+        ]
+      }
+    },
+
+    "ElasticIPNAT2": {
+      "Type": "AWS::EC2::EIP",
+      "DependsOn": "AttachGateway",
+      "Properties": {
+        "Domain": "vpc",
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-eip-nat2-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "Purpose", "Value": "NAT Gateway AZ2 - Outbound Internet Access IP 1 (Primary)" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" },
+          { "Key": "Critical", "Value": "true" },
+          { "Key": "DoNotDelete", "Value": "true" }
+        ]
+      }
+    },
+
+    "ElasticIPNAT2Secondary": {
+      "Type": "AWS::EC2::EIP",
+      "DependsOn": "AttachGateway",
+      "Properties": {
+        "Domain": "vpc",
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-eip-nat2-secondary-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "Purpose", "Value": "NAT Gateway AZ2 - Outbound Internet Access IP 2 (Secondary)" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" },
+          { "Key": "Critical", "Value": "true" },
+          { "Key": "DoNotDelete", "Value": "true" }
+        ]
+      }
+    },
+
+    "NATGatewayAZ1": {
+      "Type": "AWS::EC2::NatGateway",
+      "Properties": {
+        "AllocationId": { "Fn::GetAtt": ["ElasticIPNAT1", "AllocationId"] },
+        "SubnetId": { "Ref": "PublicSubnetAZ1" },
+        "SecondaryAllocationIds": [
+          { "Fn::GetAtt": ["ElasticIPNAT1Secondary", "AllocationId"] }
+        ],
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-nat-gateway-az1-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "NATGatewayAZ2": {
+      "Type": "AWS::EC2::NatGateway",
+      "Properties": {
+        "AllocationId": { "Fn::GetAtt": ["ElasticIPNAT2", "AllocationId"] },
+        "SubnetId": { "Ref": "PublicSubnetAZ2" },
+        "SecondaryAllocationIds": [
+          { "Fn::GetAtt": ["ElasticIPNAT2Secondary", "AllocationId"] }
+        ],
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-nat-gateway-az2-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "PublicRouteTable": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-public-rt-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "PublicRoute": {
+      "Type": "AWS::EC2::Route",
+      "DependsOn": "AttachGateway",
+      "Properties": {
+        "RouteTableId": { "Ref": "PublicRouteTable" },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": { "Ref": "InternetGateway" }
+      }
+    },
+
+    "PublicSubnetAZ1RouteTableAssociation": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": { "Ref": "PublicSubnetAZ1" },
+        "RouteTableId": { "Ref": "PublicRouteTable" }
+      }
+    },
+
+    "PublicSubnetAZ2RouteTableAssociation": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": { "Ref": "PublicSubnetAZ2" },
+        "RouteTableId": { "Ref": "PublicRouteTable" }
+      }
+    },
+
+    "PublicSubnetAZ3RouteTableAssociation": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Condition": "HasThirdAZ",
+      "Properties": {
+        "SubnetId": { "Ref": "PublicSubnetAZ3" },
+        "RouteTableId": { "Ref": "PublicRouteTable" }
+      }
+    },
+
+    "PrivateRouteTableAZ1": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-private-rt-az1-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "PrivateRouteAZ1": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": { "Ref": "PrivateRouteTableAZ1" },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "NatGatewayId": { "Ref": "NATGatewayAZ1" }
+      }
+    },
+
+    "PrivateSubnetOMSAZ1RouteTableAssociation": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": { "Ref": "PrivateSubnetOMSAZ1" },
+        "RouteTableId": { "Ref": "PrivateRouteTableAZ1" }
+      }
+    },
+
+    "PrivateSubnetFrontendAZ1RouteTableAssociation": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": { "Ref": "PrivateSubnetFrontendAZ1" },
+        "RouteTableId": { "Ref": "PrivateRouteTableAZ1" }
+      }
+    },
+
+    "PrivateRouteTableAZ2": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-private-rt-az2-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "PrivateRouteAZ2": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": { "Ref": "PrivateRouteTableAZ2" },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "NatGatewayId": { "Ref": "NATGatewayAZ2" }
+      }
+    },
+
+    "PrivateSubnetOMSAZ2RouteTableAssociation": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": { "Ref": "PrivateSubnetOMSAZ2" },
+        "RouteTableId": { "Ref": "PrivateRouteTableAZ2" }
+      }
+    },
+
+    "PrivateSubnetFrontendAZ2RouteTableAssociation": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": { "Ref": "PrivateSubnetFrontendAZ2" },
+        "RouteTableId": { "Ref": "PrivateRouteTableAZ2" }
+      }
+    },
+
+    "PrivateRouteTableAZ3": {
+      "Type": "AWS::EC2::RouteTable",
+      "Condition": "HasThirdAZ",
+      "Properties": {
+        "VpcId": { "Ref": "VPC" },
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-private-rt-az3-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+
+    "PrivateRouteAZ3": {
+      "Type": "AWS::EC2::Route",
+      "Condition": "HasThirdAZ",
+      "Properties": {
+        "RouteTableId": { "Ref": "PrivateRouteTableAZ3" },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "NatGatewayId": { "Ref": "NATGatewayAZ1" }
+      }
+    },
+
+    "PrivateSubnetOMSAZ3RouteTableAssociation": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Condition": "HasThirdAZ",
+      "Properties": {
+        "SubnetId": { "Ref": "PrivateSubnetOMSAZ3" },
+        "RouteTableId": { "Ref": "PrivateRouteTableAZ3" }
+      }
+    },
+
+    "PrivateSubnetFrontendAZ3RouteTableAssociation": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Condition": "HasThirdAZ",
+      "Properties": {
+        "SubnetId": { "Ref": "PrivateSubnetFrontendAZ3" },
+        "RouteTableId": { "Ref": "PrivateRouteTableAZ3" }
+      }
+    },
+
+    "VPCFlowLogRole": {
+      "Type": "AWS::IAM::Role",
+      "Condition": "EnableFlowLogs",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "vpc-flow-logs.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "CloudWatchLogPolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents",
+                    "logs:DescribeLogGroups",
+                    "logs:DescribeLogStreams"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-vpc-flow-log-role-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } }
+        ]
+      }
+    },
+
+    "VPCFlowLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Condition": "EnableFlowLogs",
+      "Properties": {
+        "LogGroupName": { "Fn::Sub": "/aws/vpc/${ProjectName}-prod" },
+        "RetentionInDays": 30
+      }
+    },
+
+    "VPCFlowLog": {
+      "Type": "AWS::EC2::FlowLog",
+      "Condition": "EnableFlowLogs",
+      "Properties": {
+        "ResourceType": "VPC",
+        "ResourceId": { "Ref": "VPC" },
+        "TrafficType": "ALL",
+        "LogDestinationType": "cloud-watch-logs",
+        "LogGroupName": { "Ref": "VPCFlowLogGroup" },
+        "DeliverLogsPermissionArn": { "Fn::GetAtt": ["VPCFlowLogRole", "Arn"] },
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-vpc-flow-log-prod" } },
+          { "Key": "Environment", "Value": "prod" },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } }
+        ]
+      }
+    }
+  },
+
+  "Outputs": {
+    "VPCId": {
+      "Description": "Production VPC ID",
+      "Value": { "Ref": "VPC" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-VPCId" } }
+    },
+    "VPCCidr": {
+      "Description": "Production VPC CIDR Block",
+      "Value": { "Ref": "VpcCIDR" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-VPCCidr" } }
+    },
+    "PublicSubnetAZ1": {
+      "Description": "Public Subnet AZ1 ID",
+      "Value": { "Ref": "PublicSubnetAZ1" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-PublicSubnetAZ1" } }
+    },
+    "PublicSubnetAZ2": {
+      "Description": "Public Subnet AZ2 ID",
+      "Value": { "Ref": "PublicSubnetAZ2" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-PublicSubnetAZ2" } }
+    },
+    "PublicSubnetAZ3": {
+      "Condition": "HasThirdAZ",
+      "Description": "Public Subnet AZ3 ID",
+      "Value": { "Ref": "PublicSubnetAZ3" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-PublicSubnetAZ3" } }
+    },
+    "PrivateSubnetOMSAZ1": {
+      "Description": "Private OMS Subnet AZ1 ID",
+      "Value": { "Ref": "PrivateSubnetOMSAZ1" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-PrivateSubnetOMSAZ1" } }
+    },
+    "PrivateSubnetOMSAZ2": {
+      "Description": "Private OMS Subnet AZ2 ID",
+      "Value": { "Ref": "PrivateSubnetOMSAZ2" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-PrivateSubnetOMSAZ2" } }
+    },
+    "PrivateSubnetOMSAZ3": {
+      "Condition": "HasThirdAZ",
+      "Description": "Private OMS Subnet AZ3 ID",
+      "Value": { "Ref": "PrivateSubnetOMSAZ3" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-PrivateSubnetOMSAZ3" } }
+    },
+    "PrivateSubnetFrontendAZ1": {
+      "Description": "Private Frontend Subnet AZ1 ID",
+      "Value": { "Ref": "PrivateSubnetFrontendAZ1" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-PrivateSubnetFrontendAZ1" } }
+    },
+    "PrivateSubnetFrontendAZ2": {
+      "Description": "Private Frontend Subnet AZ2 ID",
+      "Value": { "Ref": "PrivateSubnetFrontendAZ2" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-PrivateSubnetFrontendAZ2" } }
+    },
+    "PrivateSubnetFrontendAZ3": {
+      "Condition": "HasThirdAZ",
+      "Description": "Private Frontend Subnet AZ3 ID",
+      "Value": { "Ref": "PrivateSubnetFrontendAZ3" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-PrivateSubnetFrontendAZ3" } }
+    },
+    "NATGatewayAZ1": {
+      "Description": "NAT Gateway AZ1 ID",
+      "Value": { "Ref": "NATGatewayAZ1" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-NATGatewayAZ1" } }
+    },
+    "NATGatewayAZ2": {
+      "Description": "NAT Gateway AZ2 ID",
+      "Value": { "Ref": "NATGatewayAZ2" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-NATGatewayAZ2" } }
+    },
+    "ElasticIPNAT1": {
+      "Description": "⚠️ CRITICAL - Elastic IP for NAT Gateway AZ1 (Primary) - Static outbound IP for internet access",
+      "Value": { "Ref": "ElasticIPNAT1" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-ElasticIPNAT1" } }
+    },
+    "ElasticIPNAT1Secondary": {
+      "Description": "⚠️ CRITICAL - Elastic IP for NAT Gateway AZ1 (Secondary) - Static outbound IP for internet access",
+      "Value": { "Ref": "ElasticIPNAT1Secondary" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-ElasticIPNAT1Secondary" } }
+    },
+    "ElasticIPNAT2": {
+      "Description": "⚠️ CRITICAL - Elastic IP for NAT Gateway AZ2 (Primary) - Static outbound IP for internet access",
+      "Value": { "Ref": "ElasticIPNAT2" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-ElasticIPNAT2" } }
+    },
+    "ElasticIPNAT2Secondary": {
+      "Description": "⚠️ CRITICAL - Elastic IP for NAT Gateway AZ2 (Secondary) - Static outbound IP for internet access",
+      "Value": { "Ref": "ElasticIPNAT2Secondary" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-ElasticIPNAT2Secondary" } }
+    },
+    "InternetGatewayId": {
+      "Description": "Internet Gateway ID",
+      "Value": { "Ref": "InternetGateway" },
+      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-InternetGatewayId" } }
+    }
+  }
+}

@@ -1,0 +1,627 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "ECS Task Definition for Frontend Admin Service - Sentry",
+  "Parameters": {
+    "ProjectName": {
+      "Type": "String",
+      "Default": "sentry",
+      "Description": "Project name"
+    },
+    "Environment": {
+      "Type": "String",
+      "AllowedValues": [
+        "dev",
+        "staging",
+        "prod"
+      ],
+      "Description": "Deployment environment"
+    },
+    "ECSClusterStackName": {
+      "Type": "String",
+      "Description": "ECS Cluster stack name to import outputs"
+    },
+    "ECRRepositoryUri": {
+      "Type": "String",
+      "Description": "ECR repository URI (e.g., 123456789.dkr.ecr.us-east-1.amazonaws.com/frontend-admin)"
+    },
+    "ImageTag": {
+      "Type": "String",
+      "Default": "latest",
+      "Description": "Docker image tag"
+    },
+    "ContainerCpu": {
+      "Type": "Number",
+      "Default": 256,
+      "AllowedValues": [
+        256,
+        512,
+        1024,
+        2048,
+        4096
+      ],
+      "Description": "CPU units for the container (256 = 0.25 vCPU, 1024 = 1 vCPU)"
+    },
+    "ContainerMemory": {
+      "Type": "Number",
+      "Default": 512,
+      "AllowedValues": [
+        128,
+        256,
+        512,
+        1024,
+        2048,
+        3072,
+        4096
+      ],
+      "Description": "Hard memory limit in MB"
+    },
+    "ContainerMemoryReservation": {
+      "Type": "Number",
+      "Default": 256,
+      "AllowedValues": [
+        128,
+        256,
+        375,
+        384,
+        512,
+        1024,
+        2048,
+        3072,
+        4096
+      ],
+      "Description": "Soft memory limit in MB (guaranteed reservation)"
+    },
+    "ContainerPort": {
+      "Type": "Number",
+      "Default": 3000,
+      "Description": "Frontend container port"
+    },
+    "DesiredCount": {
+      "Type": "Number",
+      "Default": 1,
+      "MinValue": 0,
+      "Description": "Desired number of running tasks"
+    },
+    "EnvFileS3Arn": {
+      "Type": "String",
+      "Default": "",
+      "Description": "ARN of .env file in S3 (e.g., arn:aws:s3:::bucket-name/path/to/.env). Leave empty to skip."
+    },
+    "ALBStackName": {
+      "Type": "String",
+      "Description": "ALB CloudFormation stack name to import Target Group"
+    },
+    "SecretsArn": {
+      "Type": "String",
+      "Default": "",
+      "Description": "ARN of Secrets Manager secret containing environment variables (JSON format). Leave empty to skip."
+    },
+    "CognitoUserPoolId": {
+      "Type": "String",
+      "Description": "Cognito User Pool ID for admin operations"
+    },
+    "DynamoDBConfigTable": {
+      "Type": "String",
+      "Default": "oms_config",
+      "Description": "DynamoDB config table name"
+    },
+    "DynamoDBTradingTable": {
+      "Type": "String",
+      "Default": "oms_trading_data",
+      "Description": "DynamoDB trading data table name"
+    }
+  },
+  "Conditions": {
+    "IsProd": {
+      "Fn::Equals": [
+        {
+          "Ref": "Environment"
+        },
+        "prod"
+      ]
+    },
+    "HasEnvFile": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "EnvFileS3Arn"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "HasSecrets": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "SecretsArn"
+            },
+            ""
+          ]
+        }
+      ]
+    }
+  },
+  "Resources": {
+    "TaskRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "${ProjectName}-frontend-admin-task-role-${Environment}"
+        },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "CognitoAdminAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "cognito-idp:AdminCreateUser",
+                    "cognito-idp:AdminDeleteUser",
+                    "cognito-idp:AdminUpdateUserAttributes",
+                    "cognito-idp:AdminGetUser",
+                    "cognito-idp:AdminSetUserPassword",
+                    "cognito-idp:AdminListGroupsForUser",
+                    "cognito-idp:AdminAddUserToGroup",
+                    "cognito-idp:AdminRemoveUserFromGroup",
+                    "cognito-idp:AdminEnableUser",
+                    "cognito-idp:AdminDisableUser",
+                    "cognito-idp:ListUsers",
+                    "cognito-idp:ListGroups"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${CognitoUserPoolId}"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "DynamoDBAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:BatchGetItem",
+                    "dynamodb:BatchWriteItem",
+                    "dynamodb:DeleteItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DescribeTable"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBConfigTable}"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBConfigTable}/index/*"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBTradingTable}"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBTradingTable}/index/*"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "CloudWatchLogsAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents",
+                    "logs:DescribeLogStreams"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/${ProjectName}/frontend-admin/${Environment}*"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-frontend-admin-task-role-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "Service",
+            "Value": "frontend-admin"
+          }
+        ]
+      }
+    },
+    "TaskDefinition": {
+      "Type": "AWS::ECS::TaskDefinition",
+      "Properties": {
+        "Family": {
+          "Fn::Sub": "${ProjectName}-frontend-admin-${Environment}"
+        },
+        "NetworkMode": "bridge",
+        "RequiresCompatibilities": [
+          "EC2"
+        ],
+        "ExecutionRoleArn": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${ECSClusterStackName}-TaskExecutionRoleArn"
+          }
+        },
+        "TaskRoleArn": {
+          "Fn::GetAtt": [
+            "TaskRole",
+            "Arn"
+          ]
+        },
+        "ContainerDefinitions": [
+          {
+            "Name": "frontend-admin",
+            "Image": {
+              "Fn::Sub": "${ECRRepositoryUri}:${ImageTag}"
+            },
+            "Cpu": {
+              "Ref": "ContainerCpu"
+            },
+            "Memory": {
+              "Ref": "ContainerMemory"
+            },
+            "MemoryReservation": {
+              "Ref": "ContainerMemoryReservation"
+            },
+            "Essential": true,
+            "PortMappings": [
+              {
+                "ContainerPort": {
+                  "Ref": "ContainerPort"
+                },
+                "Protocol": "tcp"
+              }
+            ],
+            "Environment": [
+              {
+                "Name": "NODE_ENV",
+                "Value": {
+                  "Ref": "Environment"
+                }
+              },
+              {
+                "Name": "PORT",
+                "Value": {
+                  "Fn::Sub": "${ContainerPort}"
+                }
+              },
+              {
+                "Name": "AWS_REGION",
+                "Value": {
+                  "Ref": "AWS::Region"
+                }
+              },
+              {
+                "Name": "NEXT_PUBLIC_COGNITO_REGION",
+                "Value": {
+                  "Fn::ImportValue": {
+                    "Fn::Sub": "${Environment}-oms-cognito-region"
+                  }
+                }
+              },
+              {
+                "Name": "NEXT_PUBLIC_COGNITO_USER_POOL_ID",
+                "Value": {
+                  "Fn::ImportValue": {
+                    "Fn::Sub": "${Environment}-oms-user-pool-id"
+                  }
+                }
+              },
+              {
+                "Name": "NEXT_PUBLIC_COGNITO_CLIENT_ID",
+                "Value": {
+                  "Fn::ImportValue": {
+                    "Fn::Sub": "${Environment}-oms-user-pool-client-id"
+                  }
+                }
+              }
+            ],
+            "EnvironmentFiles": {
+              "Fn::If": [
+                "HasEnvFile",
+                [
+                  {
+                    "Type": "s3",
+                    "Value": {
+                      "Ref": "EnvFileS3Arn"
+                    }
+                  }
+                ],
+                {
+                  "Ref": "AWS::NoValue"
+                }
+              ]
+            },
+            "Secrets": {
+              "Fn::If": [
+                "HasSecrets",
+                [
+                  {
+                    "Name": "SESSION_SECRET",
+                    "ValueFrom": {
+                      "Fn::Sub": "${SecretsArn}:SESSION_SECRET::"
+                    }
+                  },
+                  {
+                    "Name": "DYNAMODB_CONFIG_TABLE",
+                    "ValueFrom": {
+                      "Fn::Sub": "${SecretsArn}:DYNAMODB_CONFIG_TABLE::"
+                    }
+                  },
+                  {
+                    "Name": "DYNAMODB_TRADING_DATA_TABLE",
+                    "ValueFrom": {
+                      "Fn::Sub": "${SecretsArn}:DYNAMODB_TRADING_TABLE::"
+                    }
+                  },
+                  {
+                    "Name": "REDIS_URL",
+                    "ValueFrom": {
+                      "Fn::Sub": "${SecretsArn}:REDIS_HOST::"
+                    }
+                  }
+                ],
+                {
+                  "Ref": "AWS::NoValue"
+                }
+              ]
+            },
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": {
+                  "Fn::Sub": "/ecs/${ProjectName}/frontend-admin/${Environment}"
+                },
+                "awslogs-region": {
+                  "Ref": "AWS::Region"
+                },
+                "awslogs-stream-prefix": "frontend-admin",
+                "awslogs-create-group": "true"
+              }
+            },
+            "HealthCheck": {
+              "Command": [
+                "CMD-SHELL",
+                {
+                  "Fn::Sub": "wget --no-verbose --tries=1 --spider http://localhost:${ContainerPort}/api/health || exit 1"
+                }
+              ],
+              "Interval": 30,
+              "Timeout": 5,
+              "Retries": 3,
+              "StartPeriod": 60
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-frontend-admin-task-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "Service",
+            "Value": "frontend-admin"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          }
+        ]
+      }
+    },
+    "Service": {
+      "Type": "AWS::ECS::Service",
+      "Properties": {
+        "ServiceName": {
+          "Fn::Sub": "${ProjectName}-frontend-admin-service-${Environment}"
+        },
+        "Cluster": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${ECSClusterStackName}-ClusterName"
+          }
+        },
+        "TaskDefinition": {
+          "Ref": "TaskDefinition"
+        },
+        "DesiredCount": {
+          "Ref": "DesiredCount"
+        },
+        "LaunchType": "EC2",
+        "DeploymentConfiguration": {
+          "MaximumPercent": 200,
+          "MinimumHealthyPercent": {
+            "Fn::If": [
+              "IsProd",
+              100,
+              0
+            ]
+          },
+          "DeploymentCircuitBreaker": {
+            "Enable": true,
+            "Rollback": {
+              "Fn::If": [
+                "IsProd",
+                true,
+                false
+              ]
+            }
+          }
+        },
+        "PlacementStrategies": [
+          {
+            "Type": "spread",
+            "Field": "attribute:ecs.availability-zone"
+          },
+          {
+            "Type": "spread",
+            "Field": "instanceId"
+          }
+        ],
+        "HealthCheckGracePeriodSeconds": 60,
+        "LoadBalancers": [
+          {
+            "ContainerName": "frontend-admin",
+            "ContainerPort": {
+              "Ref": "ContainerPort"
+            },
+            "TargetGroupArn": {
+              "Fn::ImportValue": {
+                "Fn::Sub": "${ALBStackName}-TargetGroupArn"
+              }
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-frontend-admin-service-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "Service",
+            "Value": "frontend-admin"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "TaskDefinitionArn": {
+      "Description": "Frontend Admin Task Definition ARN",
+      "Value": {
+        "Ref": "TaskDefinition"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-TaskDefinitionArn"
+        }
+      }
+    },
+    "ServiceName": {
+      "Description": "Frontend Admin ECS Service Name",
+      "Value": {
+        "Fn::GetAtt": [
+          "Service",
+          "Name"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ServiceName"
+        }
+      }
+    },
+    "ServiceArn": {
+      "Description": "Frontend Admin ECS Service ARN",
+      "Value": {
+        "Ref": "Service"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ServiceArn"
+        }
+      }
+    },
+    "ContainerPort": {
+      "Description": "Frontend Admin container port",
+      "Value": {
+        "Ref": "ContainerPort"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ContainerPort"
+        }
+      }
+    },
+    "TaskRoleArn": {
+      "Description": "Frontend Admin Task Role ARN",
+      "Value": {
+        "Fn::GetAtt": [
+          "TaskRole",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-TaskRoleArn"
+        }
+      }
+    }
+  }
+}

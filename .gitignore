@@ -1,0 +1,38 @@
+# Certificados e chaves privadas
+*.crt
+*.key
+*.pem
+*.p12
+*.pfx
+certificate.*
+private.*
+
+# Arquivos de ambiente com segredos
+.env
+.env.*
+*.secrets
+*-secrets.json
+
+# Arquivos de parametros com valores reais
+params/*/
+!params/*.example.json
+
+# Arquivos temporarios
+*.tmp
+*.bak
+*.swp
+*~
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Arquivos gerados
+*.drawio.bkp

@@ -1,0 +1,230 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "DynamoDB table for Sentry Trading Data (Orders, Executions, Positions) with GSIs",
+  "Parameters": {
+    "Environment": {
+      "Type": "String",
+      "Default": "dev",
+      "AllowedValues": [
+        "dev",
+        "staging",
+        "prod"
+      ],
+      "Description": "Environment name"
+    },
+    "TableName": {
+      "Type": "String",
+      "Default": "oms_trading_data",
+      "Description": "Name of the DynamoDB table"
+    },
+    "EnablePITR": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
+      "Description": "Enable Point-in-Time Recovery (recommended for production)"
+    }
+  },
+  "Resources": {
+    "OMSTradingTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": {
+          "Fn::Sub": "${TableName}_${Environment}"
+        },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "PK",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "SK",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "GSI1_PK",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "GSI1_SK",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "GSI2_PK",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "GSI2_SK",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "GSI3_PK",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "GSI3_SK",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "PK",
+            "KeyType": "HASH"
+          },
+          {
+            "AttributeName": "SK",
+            "KeyType": "RANGE"
+          }
+        ],
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "GSI1",
+            "KeySchema": [
+              {
+                "AttributeName": "GSI1_PK",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "GSI1_SK",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            }
+          },
+          {
+            "IndexName": "GSI2",
+            "KeySchema": [
+              {
+                "AttributeName": "GSI2_PK",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "GSI2_SK",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "KEYS_ONLY"
+            }
+          },
+          {
+            "IndexName": "GSI3",
+            "KeySchema": [
+              {
+                "AttributeName": "GSI3_PK",
+                "KeyType": "HASH"
+              },
+              {
+                "AttributeName": "GSI3_SK",
+                "KeyType": "RANGE"
+              }
+            ],
+            "Projection": {
+              "ProjectionType": "ALL"
+            }
+          }
+        ],
+        "TimeToLiveSpecification": {
+          "AttributeName": "ttl",
+          "Enabled": true
+        },
+        "SSESpecification": {
+          "SSEEnabled": true,
+          "SSEType": "KMS"
+        },
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": {
+            "Ref": "EnablePITR"
+          }
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "OMS Trading Data Table"
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Project",
+            "Value": "OMS"
+          },
+          {
+            "Key": "CostCenter",
+            "Value": "Trading"
+          },
+          {
+            "Key": "DataRetention",
+            "Value": "90-days-TTL"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "TableName": {
+      "Description": "Name of the trading data DynamoDB table",
+      "Value": {
+        "Ref": "OMSTradingTable"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-TableName"
+        }
+      }
+    },
+    "TableArn": {
+      "Description": "ARN of the trading data DynamoDB table",
+      "Value": {
+        "Fn::GetAtt": [
+          "OMSTradingTable",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-TableArn"
+        }
+      }
+    },
+    "GSI1Name": {
+      "Description": "Name of GSI1 (Product/Analyst queries)",
+      "Value": "GSI1",
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-GSI1-Name"
+        }
+      }
+    },
+    "GSI2Name": {
+      "Description": "Name of GSI2 (Master order traceability)",
+      "Value": "GSI2",
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-GSI2-Name"
+        }
+      }
+    },
+    "GSI3Name": {
+      "Description": "Name of GSI3 (Order ID lookup)",
+      "Value": "GSI3",
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-GSI3-Name"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,605 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "ECS Task Definition for OMS Service - Sentry",
+  "Parameters": {
+    "ProjectName": {
+      "Type": "String",
+      "Default": "sentry",
+      "Description": "Project name"
+    },
+    "Environment": {
+      "Type": "String",
+      "AllowedValues": [
+        "dev",
+        "staging",
+        "prod"
+      ],
+      "Description": "Deployment environment"
+    },
+    "ECSClusterStackName": {
+      "Type": "String",
+      "Description": "ECS Cluster stack name to import outputs"
+    },
+    "ECRRepositoryUri": {
+      "Type": "String",
+      "Description": "ECR repository URI (e.g., 123456789.dkr.ecr.us-east-1.amazonaws.com/oms-service)"
+    },
+    "ImageTag": {
+      "Type": "String",
+      "Default": "latest",
+      "Description": "Docker image tag"
+    },
+    "ContainerCpu": {
+      "Type": "Number",
+      "Default": 512,
+      "AllowedValues": [
+        256,
+        512,
+        1024,
+        2048,
+        4096
+      ],
+      "Description": "CPU units for the container (256 = 0.25 vCPU, 1024 = 1 vCPU)"
+    },
+    "ContainerMemory": {
+      "Type": "Number",
+      "Default": 1024,
+      "Description": "Memory in MB for the container"
+    },
+    "ContainerMemoryReservation": {
+      "Type": "Number",
+      "Default": 512,
+      "Description": "Soft memory limit in MB"
+    },
+    "DesiredCount": {
+      "Type": "Number",
+      "Default": 1,
+      "MinValue": 0,
+      "Description": "Desired number of running tasks"
+    },
+    "HealthCheckPath": {
+      "Type": "String",
+      "Default": "/health",
+      "Description": "Health check path for the container"
+    },
+    "HealthCheckInterval": {
+      "Type": "Number",
+      "Default": 30,
+      "Description": "Health check interval in seconds"
+    },
+    "HealthCheckTimeout": {
+      "Type": "Number",
+      "Default": 5,
+      "Description": "Health check timeout in seconds"
+    },
+    "HealthCheckRetries": {
+      "Type": "Number",
+      "Default": 3,
+      "Description": "Number of retries before marking as unhealthy"
+    },
+    "AppSecretArn": {
+      "Type": "String",
+      "Description": "ARN of the main secret (Secrets Manager) containing all sensitive variables"
+    },
+    "DemoEnvironment": {
+      "Type": "String",
+      "Default": "true",
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
+      "Description": "Use exchange demo environment (true for dev/staging, false for prod)"
+    },
+    "ExecutionMode": {
+      "Type": "String",
+      "Default": "direct",
+      "AllowedValues": [
+        "direct",
+        "queue"
+      ],
+      "Description": "Execution mode: direct (internal queue) or queue (via SQS)"
+    },
+    "MasterOrderWorkers": {
+      "Type": "Number",
+      "Default": 50,
+      "Description": "Parallel workers for processing master orders"
+    },
+    "MasterOrderProcessingWorkers": {
+      "Type": "Number",
+      "Default": 200,
+      "Description": "Workers for processing traders within a master order"
+    },
+    "ExecutionWorkers": {
+      "Type": "Number",
+      "Default": 300,
+      "Description": "Workers for direct execution (direct mode only)"
+    },
+    "ExecutionConcurrency": {
+      "Type": "Number",
+      "Default": 1,
+      "Description": "Parallel requests per worker"
+    },
+    "RedisPoolSize": {
+      "Type": "Number",
+      "Default": 50,
+      "Description": "Redis connection pool size"
+    },
+    "RedisDb": {
+      "Type": "Number",
+      "Default": 0,
+      "Description": "Redis database (0-15)"
+    },
+    "LoadInstruments": {
+      "Type": "String",
+      "Default": "true",
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
+      "Description": "Load exchange instruments on startup"
+    },
+    "ClientEventsBatchSize": {
+      "Type": "Number",
+      "Default": 10,
+      "Description": "Batch size for SQS event polling"
+    },
+    "ClientEventsWaitTime": {
+      "Type": "Number",
+      "Default": 20,
+      "Description": "Long polling wait time in seconds (0-20)"
+    },
+    "ClientEventsWorkers": {
+      "Type": "Number",
+      "Default": 5,
+      "Description": "Concurrent workers for processing client events"
+    },
+    "ContainerPort": {
+      "Type": "Number",
+      "Default": 8080,
+      "Description": "Health check server port (internal only, not exposed externally)"
+    }
+  },
+  "Conditions": {
+    "IsProd": {
+      "Fn::Equals": [
+        {
+          "Ref": "Environment"
+        },
+        "prod"
+      ]
+    }
+  },
+  "Resources": {
+    "TaskDefinition": {
+      "Type": "AWS::ECS::TaskDefinition",
+      "Properties": {
+        "Family": {
+          "Fn::Sub": "${ProjectName}-oms-${Environment}"
+        },
+        "NetworkMode": "bridge",
+        "RequiresCompatibilities": [
+          "EC2"
+        ],
+        "Cpu": {
+          "Ref": "ContainerCpu"
+        },
+        "Memory": {
+          "Ref": "ContainerMemory"
+        },
+        "ExecutionRoleArn": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${ECSClusterStackName}-TaskExecutionRoleArn"
+          }
+        },
+        "TaskRoleArn": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${ECSClusterStackName}-TaskRoleArn"
+          }
+        },
+        "ContainerDefinitions": [
+          {
+            "Name": "oms-service",
+            "Image": {
+              "Fn::Sub": "${ECRRepositoryUri}:${ImageTag}"
+            },
+            "Cpu": {
+              "Ref": "ContainerCpu"
+            },
+            "Memory": {
+              "Ref": "ContainerMemory"
+            },
+            "MemoryReservation": {
+              "Ref": "ContainerMemoryReservation"
+            },
+            "Essential": true,
+            "Environment": [
+              {
+                "Name": "APP_ENV",
+                "Value": {
+                  "Ref": "Environment"
+                }
+              },
+              {
+                "Name": "AWS_REGION",
+                "Value": {
+                  "Ref": "AWS::Region"
+                }
+              },
+              {
+                "Name": "QUEUE_TYPE",
+                "Value": "sqs"
+              },
+              {
+                "Name": "DEMO_ENVIRONMENT",
+                "Value": {
+                  "Ref": "DemoEnvironment"
+                }
+              },
+              {
+                "Name": "BITGET_BASE_URL",
+                "Value": "https://api.bitget.com"
+              },
+              {
+                "Name": "BING_X_BASE_URL",
+                "Value": "https://open-api.bingx.com"
+              },
+              {
+                "Name": "OKX_BASE_URL",
+                "Value": "https://www.okx.com"
+              },
+              {
+                "Name": "OKX_ORDER_TAG",
+                "Value": "oms-v1"
+              },
+              {
+                "Name": "EXECUTION_MODE",
+                "Value": {
+                  "Ref": "ExecutionMode"
+                }
+              },
+              {
+                "Name": "MASTER_ORDER_WORKERS",
+                "Value": {
+                  "Fn::Sub": "${MasterOrderWorkers}"
+                }
+              },
+              {
+                "Name": "MASTER_ORDER_PROCESSING_WORKERS",
+                "Value": {
+                  "Fn::Sub": "${MasterOrderProcessingWorkers}"
+                }
+              },
+              {
+                "Name": "EXECUTION_WORKERS",
+                "Value": {
+                  "Fn::Sub": "${ExecutionWorkers}"
+                }
+              },
+              {
+                "Name": "EXECUTION_CONCURRENCY",
+                "Value": {
+                  "Fn::Sub": "${ExecutionConcurrency}"
+                }
+              },
+              {
+                "Name": "REDIS_DB",
+                "Value": {
+                  "Fn::Sub": "${RedisDb}"
+                }
+              },
+              {
+                "Name": "REDIS_POOL_SIZE",
+                "Value": {
+                  "Fn::Sub": "${RedisPoolSize}"
+                }
+              },
+              {
+                "Name": "LOAD_INSTRUMENTS",
+                "Value": {
+                  "Ref": "LoadInstruments"
+                }
+              },
+              {
+                "Name": "CLIENT_EVENTS_BATCH_SIZE",
+                "Value": {
+                  "Fn::Sub": "${ClientEventsBatchSize}"
+                }
+              },
+              {
+                "Name": "CLIENT_EVENTS_WAIT_TIME",
+                "Value": {
+                  "Fn::Sub": "${ClientEventsWaitTime}"
+                }
+              },
+              {
+                "Name": "CLIENT_EVENTS_WORKERS",
+                "Value": {
+                  "Fn::Sub": "${ClientEventsWorkers}"
+                }
+              }
+            ],
+            "Secrets": [
+              {
+                "Name": "REDIS_HOST",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:REDIS_HOST::"
+                }
+              },
+              {
+                "Name": "REDIS_PASSWORD",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:REDIS_PASSWORD::"
+                }
+              },
+              {
+                "Name": "DYNAMODB_TRADING_TABLE",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:DYNAMODB_TRADING_TABLE::"
+                }
+              },
+              {
+                "Name": "DYNAMODB_CONFIG_TABLE",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:DYNAMODB_CONFIG_TABLE::"
+                }
+              },
+              {
+                "Name": "QUEUE_MASTER_ORDER_URL",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:QUEUE_MASTER_ORDER_URL::"
+                }
+              },
+              {
+                "Name": "BITGET_ORDERS_QUEUE_URL",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:BITGET_ORDERS_QUEUE_URL::"
+                }
+              },
+              {
+                "Name": "BITGET_FILLED_ORDERS_QUEUE_URL",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:BITGET_FILLED_ORDERS_QUEUE_URL::"
+                }
+              },
+              {
+                "Name": "BINGX_ORDERS_QUEUE_URL",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:BINGX_ORDERS_QUEUE_URL::"
+                }
+              },
+              {
+                "Name": "BINGX_FILLED_ORDERS_QUEUE_URL",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:BINGX_FILLED_ORDERS_QUEUE_URL::"
+                }
+              },
+              {
+                "Name": "OKX_ORDERS_QUEUE_URL",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:OKX_ORDERS_QUEUE_URL::"
+                }
+              },
+              {
+                "Name": "OKX_FILLED_ORDERS_URL",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:OKX_FILLED_ORDERS_URL::"
+                }
+              },
+              {
+                "Name": "QUEUE_EXECUTION_POLLING_URL",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:QUEUE_EXECUTION_POLLING_URL::"
+                }
+              },
+              {
+                "Name": "QUEUE_CLIENT_EVENTS_URL",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:QUEUE_CLIENT_EVENTS_URL::"
+                }
+              }
+            ],
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": {
+                  "Fn::ImportValue": {
+                    "Fn::Sub": "${ECSClusterStackName}-LogGroupName"
+                  }
+                },
+                "awslogs-region": {
+                  "Ref": "AWS::Region"
+                },
+                "awslogs-stream-prefix": "oms-service"
+              }
+            },
+            "HealthCheck": {
+              "Command": [
+                "CMD",
+                "/app/oms",
+                "health"
+              ],
+              "Interval": {
+                "Ref": "HealthCheckInterval"
+              },
+              "Timeout": {
+                "Ref": "HealthCheckTimeout"
+              },
+              "Retries": {
+                "Ref": "HealthCheckRetries"
+              },
+              "StartPeriod": 60
+            },
+            "StopTimeout": 30,
+            "StartTimeout": 120,
+            "Ulimits": [
+              {
+                "Name": "nofile",
+                "SoftLimit": 65536,
+                "HardLimit": 65536
+              }
+            ],
+            "PortMappings": [
+              {
+                "ContainerPort": {
+                  "Ref": "ContainerPort"
+                },
+                "HostPort": 0,
+                "Protocol": "tcp"
+              }
+            ],
+            "MountPoints": [],
+            "VolumesFrom": []
+          }
+        ],
+        "Volumes": [],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-oms-task-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "WorkloadType",
+            "Value": "OMS"
+          }
+        ]
+      }
+    },
+    "Service": {
+      "Type": "AWS::ECS::Service",
+      "Properties": {
+        "ServiceName": {
+          "Fn::Sub": "${ProjectName}-oms-service-${Environment}"
+        },
+        "Cluster": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${ECSClusterStackName}-ClusterName"
+          }
+        },
+        "TaskDefinition": {
+          "Ref": "TaskDefinition"
+        },
+        "DesiredCount": {
+          "Ref": "DesiredCount"
+        },
+        "LaunchType": "EC2",
+        "SchedulingStrategy": "REPLICA",
+        "DeploymentConfiguration": {
+          "MaximumPercent": 200,
+          "MinimumHealthyPercent": {
+            "Fn::If": [
+              "IsProd",
+              100,
+              50
+            ]
+          },
+          "DeploymentCircuitBreaker": {
+            "Enable": true,
+            "Rollback": {
+              "Fn::If": [
+                "IsProd",
+                true,
+                false
+              ]
+            }
+          }
+        },
+        "PlacementStrategies": [
+          {
+            "Type": "spread",
+            "Field": "attribute:ecs.availability-zone"
+          },
+          {
+            "Type": "spread",
+            "Field": "instanceId"
+          }
+        ],
+        "HealthCheckGracePeriodSeconds": 60,
+        "EnableECSManagedTags": true,
+        "PropagateTags": "SERVICE",
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-oms-service-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "TaskDefinitionArn": {
+      "Description": "Task Definition ARN",
+      "Value": {
+        "Ref": "TaskDefinition"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-TaskDefinitionArn"
+        }
+      }
+    },
+    "TaskDefinitionFamily": {
+      "Description": "Task Definition Family",
+      "Value": {
+        "Fn::Sub": "${ProjectName}-oms-${Environment}"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-TaskDefinitionFamily"
+        }
+      }
+    },
+    "ServiceName": {
+      "Description": "ECS Service Name",
+      "Value": {
+        "Fn::GetAtt": [
+          "Service",
+          "Name"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ServiceName"
+        }
+      }
+    },
+    "ServiceArn": {
+      "Description": "ECS Service ARN",
+      "Value": {
+        "Ref": "Service"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ServiceArn"
+        }
+      }
+    }
+  }
+}

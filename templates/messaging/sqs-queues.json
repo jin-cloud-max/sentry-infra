@@ -1,0 +1,1563 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "SQS Queues for Sentry - Creates up to 10 FIFO queues with shared configuration",
+  "Parameters": {
+    "ProjectName": {
+      "Type": "String",
+      "Default": "sentry",
+      "Description": "Project name"
+    },
+    "Environment": {
+      "Type": "String",
+      "AllowedValues": [
+        "dev",
+        "staging",
+        "prod"
+      ],
+      "Description": "Deployment environment"
+    },
+    "Queue1Name": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Queue 1 name (e.g., master-order). Leave empty to skip"
+    },
+    "Queue2Name": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Queue 2 name (e.g., bitget-orders). Leave empty to skip"
+    },
+    "Queue3Name": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Queue 3 name. Leave empty to skip"
+    },
+    "Queue4Name": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Queue 4 name. Leave empty to skip"
+    },
+    "Queue5Name": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Queue 5 name. Leave empty to skip"
+    },
+    "Queue6Name": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Queue 6 name. Leave empty to skip"
+    },
+    "Queue7Name": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Queue 7 name. Leave empty to skip"
+    },
+    "Queue8Name": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Queue 8 name. Leave empty to skip"
+    },
+    "Queue9Name": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Queue 9 name. Leave empty to skip"
+    },
+    "Queue10Name": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Queue 10 name. Leave empty to skip"
+    },
+    "VisibilityTimeout": {
+      "Type": "Number",
+      "Default": 30,
+      "Description": "Time in seconds the message stays invisible after being read"
+    },
+    "MessageRetentionPeriod": {
+      "Type": "Number",
+      "Default": 345600,
+      "Description": "Retention in seconds (default: 4 days)"
+    },
+    "ContentBasedDeduplication": {
+      "Type": "String",
+      "Default": "true",
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
+      "Description": "FIFO: use content hash for deduplication"
+    },
+    "DeduplicationScope": {
+      "Type": "String",
+      "Default": "messageGroup",
+      "AllowedValues": [
+        "queue",
+        "messageGroup"
+      ],
+      "Description": "FIFO: deduplication scope"
+    },
+    "FifoThroughputLimit": {
+      "Type": "String",
+      "Default": "perMessageGroupId",
+      "AllowedValues": [
+        "perQueue",
+        "perMessageGroupId"
+      ],
+      "Description": "FIFO: throughput limit (perMessageGroupId = high throughput mode)"
+    },
+    "EnableDLQ": {
+      "Type": "String",
+      "Default": "true",
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
+      "Description": "Create Dead Letter Queue for each queue"
+    },
+    "MaxReceiveCount": {
+      "Type": "Number",
+      "Default": 3,
+      "Description": "Attempts before sending to DLQ"
+    }
+  },
+  "Conditions": {
+    "CreateQueue1": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "Queue1Name"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "CreateQueue2": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "Queue2Name"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "CreateQueue3": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "Queue3Name"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "CreateQueue4": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "Queue4Name"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "CreateQueue5": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "Queue5Name"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "CreateQueue6": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "Queue6Name"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "CreateQueue7": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "Queue7Name"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "CreateQueue8": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "Queue8Name"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "CreateQueue9": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "Queue9Name"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "CreateQueue10": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "Queue10Name"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "CreateDLQ": {
+      "Fn::Equals": [
+        {
+          "Ref": "EnableDLQ"
+        },
+        "true"
+      ]
+    },
+    "CreateQueue1DLQ": {
+      "Fn::And": [
+        {
+          "Condition": "CreateQueue1"
+        },
+        {
+          "Condition": "CreateDLQ"
+        }
+      ]
+    },
+    "CreateQueue2DLQ": {
+      "Fn::And": [
+        {
+          "Condition": "CreateQueue2"
+        },
+        {
+          "Condition": "CreateDLQ"
+        }
+      ]
+    },
+    "CreateQueue3DLQ": {
+      "Fn::And": [
+        {
+          "Condition": "CreateQueue3"
+        },
+        {
+          "Condition": "CreateDLQ"
+        }
+      ]
+    },
+    "CreateQueue4DLQ": {
+      "Fn::And": [
+        {
+          "Condition": "CreateQueue4"
+        },
+        {
+          "Condition": "CreateDLQ"
+        }
+      ]
+    },
+    "CreateQueue5DLQ": {
+      "Fn::And": [
+        {
+          "Condition": "CreateQueue5"
+        },
+        {
+          "Condition": "CreateDLQ"
+        }
+      ]
+    },
+    "CreateQueue6DLQ": {
+      "Fn::And": [
+        {
+          "Condition": "CreateQueue6"
+        },
+        {
+          "Condition": "CreateDLQ"
+        }
+      ]
+    },
+    "CreateQueue7DLQ": {
+      "Fn::And": [
+        {
+          "Condition": "CreateQueue7"
+        },
+        {
+          "Condition": "CreateDLQ"
+        }
+      ]
+    },
+    "CreateQueue8DLQ": {
+      "Fn::And": [
+        {
+          "Condition": "CreateQueue8"
+        },
+        {
+          "Condition": "CreateDLQ"
+        }
+      ]
+    },
+    "CreateQueue9DLQ": {
+      "Fn::And": [
+        {
+          "Condition": "CreateQueue9"
+        },
+        {
+          "Condition": "CreateDLQ"
+        }
+      ]
+    },
+    "CreateQueue10DLQ": {
+      "Fn::And": [
+        {
+          "Condition": "CreateQueue10"
+        },
+        {
+          "Condition": "CreateDLQ"
+        }
+      ]
+    },
+    "EnableContentDedup": {
+      "Fn::Equals": [
+        {
+          "Ref": "ContentBasedDeduplication"
+        },
+        "true"
+      ]
+    }
+  },
+  "Resources": {
+    "Queue1DLQ": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue1DLQ",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue1Name}-dlq-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "MessageRetentionPeriod": 1209600,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue1Name}-dlq-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "Type",
+            "Value": "dead-letter-queue"
+          }
+        ]
+      }
+    },
+    "Queue1": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue1",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue1Name}-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "ContentBasedDeduplication": {
+          "Fn::If": [
+            "EnableContentDedup",
+            true,
+            false
+          ]
+        },
+        "DeduplicationScope": {
+          "Ref": "DeduplicationScope"
+        },
+        "FifoThroughputLimit": {
+          "Ref": "FifoThroughputLimit"
+        },
+        "VisibilityTimeout": {
+          "Ref": "VisibilityTimeout"
+        },
+        "MessageRetentionPeriod": {
+          "Ref": "MessageRetentionPeriod"
+        },
+        "ReceiveMessageWaitTimeSeconds": 20,
+        "RedrivePolicy": {
+          "Fn::If": [
+            "CreateDLQ",
+            {
+              "deadLetterTargetArn": {
+                "Fn::GetAtt": [
+                  "Queue1DLQ",
+                  "Arn"
+                ]
+              },
+              "maxReceiveCount": {
+                "Ref": "MaxReceiveCount"
+              }
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue1Name}-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "QueueType",
+            "Value": "fifo"
+          }
+        ]
+      }
+    },
+    "Queue2DLQ": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue2DLQ",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue2Name}-dlq-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "MessageRetentionPeriod": 1209600,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue2Name}-dlq-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "Type",
+            "Value": "dead-letter-queue"
+          }
+        ]
+      }
+    },
+    "Queue2": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue2",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue2Name}-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "ContentBasedDeduplication": {
+          "Fn::If": [
+            "EnableContentDedup",
+            true,
+            false
+          ]
+        },
+        "DeduplicationScope": {
+          "Ref": "DeduplicationScope"
+        },
+        "FifoThroughputLimit": {
+          "Ref": "FifoThroughputLimit"
+        },
+        "VisibilityTimeout": {
+          "Ref": "VisibilityTimeout"
+        },
+        "MessageRetentionPeriod": {
+          "Ref": "MessageRetentionPeriod"
+        },
+        "ReceiveMessageWaitTimeSeconds": 20,
+        "RedrivePolicy": {
+          "Fn::If": [
+            "CreateDLQ",
+            {
+              "deadLetterTargetArn": {
+                "Fn::GetAtt": [
+                  "Queue2DLQ",
+                  "Arn"
+                ]
+              },
+              "maxReceiveCount": {
+                "Ref": "MaxReceiveCount"
+              }
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue2Name}-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "QueueType",
+            "Value": "fifo"
+          }
+        ]
+      }
+    },
+    "Queue3DLQ": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue3DLQ",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue3Name}-dlq-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "MessageRetentionPeriod": 1209600,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue3Name}-dlq-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "Type",
+            "Value": "dead-letter-queue"
+          }
+        ]
+      }
+    },
+    "Queue3": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue3",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue3Name}-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "ContentBasedDeduplication": {
+          "Fn::If": [
+            "EnableContentDedup",
+            true,
+            false
+          ]
+        },
+        "DeduplicationScope": {
+          "Ref": "DeduplicationScope"
+        },
+        "FifoThroughputLimit": {
+          "Ref": "FifoThroughputLimit"
+        },
+        "VisibilityTimeout": {
+          "Ref": "VisibilityTimeout"
+        },
+        "MessageRetentionPeriod": {
+          "Ref": "MessageRetentionPeriod"
+        },
+        "ReceiveMessageWaitTimeSeconds": 20,
+        "RedrivePolicy": {
+          "Fn::If": [
+            "CreateDLQ",
+            {
+              "deadLetterTargetArn": {
+                "Fn::GetAtt": [
+                  "Queue3DLQ",
+                  "Arn"
+                ]
+              },
+              "maxReceiveCount": {
+                "Ref": "MaxReceiveCount"
+              }
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue3Name}-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "QueueType",
+            "Value": "fifo"
+          }
+        ]
+      }
+    },
+    "Queue4DLQ": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue4DLQ",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue4Name}-dlq-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "MessageRetentionPeriod": 1209600,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue4Name}-dlq-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "Type",
+            "Value": "dead-letter-queue"
+          }
+        ]
+      }
+    },
+    "Queue4": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue4",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue4Name}-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "ContentBasedDeduplication": {
+          "Fn::If": [
+            "EnableContentDedup",
+            true,
+            false
+          ]
+        },
+        "DeduplicationScope": {
+          "Ref": "DeduplicationScope"
+        },
+        "FifoThroughputLimit": {
+          "Ref": "FifoThroughputLimit"
+        },
+        "VisibilityTimeout": {
+          "Ref": "VisibilityTimeout"
+        },
+        "MessageRetentionPeriod": {
+          "Ref": "MessageRetentionPeriod"
+        },
+        "ReceiveMessageWaitTimeSeconds": 20,
+        "RedrivePolicy": {
+          "Fn::If": [
+            "CreateDLQ",
+            {
+              "deadLetterTargetArn": {
+                "Fn::GetAtt": [
+                  "Queue4DLQ",
+                  "Arn"
+                ]
+              },
+              "maxReceiveCount": {
+                "Ref": "MaxReceiveCount"
+              }
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue4Name}-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "QueueType",
+            "Value": "fifo"
+          }
+        ]
+      }
+    },
+    "Queue5DLQ": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue5DLQ",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue5Name}-dlq-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "MessageRetentionPeriod": 1209600,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue5Name}-dlq-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "Type",
+            "Value": "dead-letter-queue"
+          }
+        ]
+      }
+    },
+    "Queue5": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue5",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue5Name}-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "ContentBasedDeduplication": {
+          "Fn::If": [
+            "EnableContentDedup",
+            true,
+            false
+          ]
+        },
+        "DeduplicationScope": {
+          "Ref": "DeduplicationScope"
+        },
+        "FifoThroughputLimit": {
+          "Ref": "FifoThroughputLimit"
+        },
+        "VisibilityTimeout": {
+          "Ref": "VisibilityTimeout"
+        },
+        "MessageRetentionPeriod": {
+          "Ref": "MessageRetentionPeriod"
+        },
+        "ReceiveMessageWaitTimeSeconds": 20,
+        "RedrivePolicy": {
+          "Fn::If": [
+            "CreateDLQ",
+            {
+              "deadLetterTargetArn": {
+                "Fn::GetAtt": [
+                  "Queue5DLQ",
+                  "Arn"
+                ]
+              },
+              "maxReceiveCount": {
+                "Ref": "MaxReceiveCount"
+              }
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue5Name}-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "QueueType",
+            "Value": "fifo"
+          }
+        ]
+      }
+    },
+    "Queue6DLQ": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue6DLQ",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue6Name}-dlq-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "MessageRetentionPeriod": 1209600,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue6Name}-dlq-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "Type",
+            "Value": "dead-letter-queue"
+          }
+        ]
+      }
+    },
+    "Queue6": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue6",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue6Name}-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "ContentBasedDeduplication": {
+          "Fn::If": [
+            "EnableContentDedup",
+            true,
+            false
+          ]
+        },
+        "DeduplicationScope": {
+          "Ref": "DeduplicationScope"
+        },
+        "FifoThroughputLimit": {
+          "Ref": "FifoThroughputLimit"
+        },
+        "VisibilityTimeout": {
+          "Ref": "VisibilityTimeout"
+        },
+        "MessageRetentionPeriod": {
+          "Ref": "MessageRetentionPeriod"
+        },
+        "ReceiveMessageWaitTimeSeconds": 20,
+        "RedrivePolicy": {
+          "Fn::If": [
+            "CreateDLQ",
+            {
+              "deadLetterTargetArn": {
+                "Fn::GetAtt": [
+                  "Queue6DLQ",
+                  "Arn"
+                ]
+              },
+              "maxReceiveCount": {
+                "Ref": "MaxReceiveCount"
+              }
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue6Name}-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "QueueType",
+            "Value": "fifo"
+          }
+        ]
+      }
+    },
+    "Queue7DLQ": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue7DLQ",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue7Name}-dlq-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "MessageRetentionPeriod": 1209600,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue7Name}-dlq-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "Type",
+            "Value": "dead-letter-queue"
+          }
+        ]
+      }
+    },
+    "Queue7": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue7",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue7Name}-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "ContentBasedDeduplication": {
+          "Fn::If": [
+            "EnableContentDedup",
+            true,
+            false
+          ]
+        },
+        "DeduplicationScope": {
+          "Ref": "DeduplicationScope"
+        },
+        "FifoThroughputLimit": {
+          "Ref": "FifoThroughputLimit"
+        },
+        "VisibilityTimeout": {
+          "Ref": "VisibilityTimeout"
+        },
+        "MessageRetentionPeriod": {
+          "Ref": "MessageRetentionPeriod"
+        },
+        "ReceiveMessageWaitTimeSeconds": 20,
+        "RedrivePolicy": {
+          "Fn::If": [
+            "CreateDLQ",
+            {
+              "deadLetterTargetArn": {
+                "Fn::GetAtt": [
+                  "Queue7DLQ",
+                  "Arn"
+                ]
+              },
+              "maxReceiveCount": {
+                "Ref": "MaxReceiveCount"
+              }
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue7Name}-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "QueueType",
+            "Value": "fifo"
+          }
+        ]
+      }
+    },
+    "Queue8DLQ": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue8DLQ",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue8Name}-dlq-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "MessageRetentionPeriod": 1209600,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue8Name}-dlq-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "Type",
+            "Value": "dead-letter-queue"
+          }
+        ]
+      }
+    },
+    "Queue8": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue8",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue8Name}-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "ContentBasedDeduplication": {
+          "Fn::If": [
+            "EnableContentDedup",
+            true,
+            false
+          ]
+        },
+        "DeduplicationScope": {
+          "Ref": "DeduplicationScope"
+        },
+        "FifoThroughputLimit": {
+          "Ref": "FifoThroughputLimit"
+        },
+        "VisibilityTimeout": {
+          "Ref": "VisibilityTimeout"
+        },
+        "MessageRetentionPeriod": {
+          "Ref": "MessageRetentionPeriod"
+        },
+        "ReceiveMessageWaitTimeSeconds": 20,
+        "RedrivePolicy": {
+          "Fn::If": [
+            "CreateDLQ",
+            {
+              "deadLetterTargetArn": {
+                "Fn::GetAtt": [
+                  "Queue8DLQ",
+                  "Arn"
+                ]
+              },
+              "maxReceiveCount": {
+                "Ref": "MaxReceiveCount"
+              }
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue8Name}-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "QueueType",
+            "Value": "fifo"
+          }
+        ]
+      }
+    },
+    "Queue9DLQ": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue9DLQ",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue9Name}-dlq-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "MessageRetentionPeriod": 1209600,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue9Name}-dlq-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "Type",
+            "Value": "dead-letter-queue"
+          }
+        ]
+      }
+    },
+    "Queue9": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue9",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue9Name}-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "ContentBasedDeduplication": {
+          "Fn::If": [
+            "EnableContentDedup",
+            true,
+            false
+          ]
+        },
+        "DeduplicationScope": {
+          "Ref": "DeduplicationScope"
+        },
+        "FifoThroughputLimit": {
+          "Ref": "FifoThroughputLimit"
+        },
+        "VisibilityTimeout": {
+          "Ref": "VisibilityTimeout"
+        },
+        "MessageRetentionPeriod": {
+          "Ref": "MessageRetentionPeriod"
+        },
+        "ReceiveMessageWaitTimeSeconds": 20,
+        "RedrivePolicy": {
+          "Fn::If": [
+            "CreateDLQ",
+            {
+              "deadLetterTargetArn": {
+                "Fn::GetAtt": [
+                  "Queue9DLQ",
+                  "Arn"
+                ]
+              },
+              "maxReceiveCount": {
+                "Ref": "MaxReceiveCount"
+              }
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue9Name}-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "QueueType",
+            "Value": "fifo"
+          }
+        ]
+      }
+    },
+    "Queue10DLQ": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue10DLQ",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue10Name}-dlq-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "MessageRetentionPeriod": 1209600,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue10Name}-dlq-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "Type",
+            "Value": "dead-letter-queue"
+          }
+        ]
+      }
+    },
+    "Queue10": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateQueue10",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${Queue10Name}-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "ContentBasedDeduplication": {
+          "Fn::If": [
+            "EnableContentDedup",
+            true,
+            false
+          ]
+        },
+        "DeduplicationScope": {
+          "Ref": "DeduplicationScope"
+        },
+        "FifoThroughputLimit": {
+          "Ref": "FifoThroughputLimit"
+        },
+        "VisibilityTimeout": {
+          "Ref": "VisibilityTimeout"
+        },
+        "MessageRetentionPeriod": {
+          "Ref": "MessageRetentionPeriod"
+        },
+        "ReceiveMessageWaitTimeSeconds": 20,
+        "RedrivePolicy": {
+          "Fn::If": [
+            "CreateDLQ",
+            {
+              "deadLetterTargetArn": {
+                "Fn::GetAtt": [
+                  "Queue10DLQ",
+                  "Arn"
+                ]
+              },
+              "maxReceiveCount": {
+                "Ref": "MaxReceiveCount"
+              }
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-${Queue10Name}-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "QueueType",
+            "Value": "fifo"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "Queue1Url": {
+      "Condition": "CreateQueue1",
+      "Description": "Queue 1 URL",
+      "Value": {
+        "Ref": "Queue1"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-Queue1Url"
+        }
+      }
+    },
+    "Queue2Url": {
+      "Condition": "CreateQueue2",
+      "Description": "Queue 2 URL",
+      "Value": {
+        "Ref": "Queue2"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-Queue2Url"
+        }
+      }
+    },
+    "Queue3Url": {
+      "Condition": "CreateQueue3",
+      "Description": "Queue 3 URL",
+      "Value": {
+        "Ref": "Queue3"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-Queue3Url"
+        }
+      }
+    },
+    "Queue4Url": {
+      "Condition": "CreateQueue4",
+      "Description": "Queue 4 URL",
+      "Value": {
+        "Ref": "Queue4"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-Queue4Url"
+        }
+      }
+    },
+    "Queue5Url": {
+      "Condition": "CreateQueue5",
+      "Description": "Queue 5 URL",
+      "Value": {
+        "Ref": "Queue5"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-Queue5Url"
+        }
+      }
+    },
+    "Queue6Url": {
+      "Condition": "CreateQueue6",
+      "Description": "Queue 6 URL",
+      "Value": {
+        "Ref": "Queue6"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-Queue6Url"
+        }
+      }
+    },
+    "Queue7Url": {
+      "Condition": "CreateQueue7",
+      "Description": "Queue 7 URL",
+      "Value": {
+        "Ref": "Queue7"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-Queue7Url"
+        }
+      }
+    },
+    "Queue8Url": {
+      "Condition": "CreateQueue8",
+      "Description": "Queue 8 URL",
+      "Value": {
+        "Ref": "Queue8"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-Queue8Url"
+        }
+      }
+    },
+    "Queue9Url": {
+      "Condition": "CreateQueue9",
+      "Description": "Queue 9 URL",
+      "Value": {
+        "Ref": "Queue9"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-Queue9Url"
+        }
+      }
+    },
+    "Queue10Url": {
+      "Condition": "CreateQueue10",
+      "Description": "Queue 10 URL",
+      "Value": {
+        "Ref": "Queue10"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-Queue10Url"
+        }
+      }
+    }
+  }
+}

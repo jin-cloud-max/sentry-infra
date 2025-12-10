@@ -1,0 +1,208 @@
+# ==============================================
+# OMS - Order Management System
+# Exemplo de configuração de variáveis de ambiente
+# ==============================================
+
+# ==============================================
+# APPLICATION
+# ==============================================
+APP_ENV=development
+# Opções: development, staging, production
+# - development: Logs em arquivo (./logs) + console, métricas detalhadas
+# - staging: Logs em console, métricas agregadas
+# - production: Logs em console (CloudWatch), métricas otimizadas
+
+# ==============================================
+# REDIS Configuration
+# ==============================================
+REDIS_HOST=localhost:6379
+# Para Docker: redis:6379
+# Para AWS ElastiCache: your-cluster.cache.amazonaws.com:6379
+
+REDIS_PASSWORD=
+# Deixe vazio para desenvolvimento local
+
+REDIS_DB=0
+# Database Redis (0-15)
+
+REDIS_POOL_SIZE=50
+# Tamanho do pool de conexões Redis
+# Default: 50 conexões
+# Recomendado: 50-100 para workloads médios
+# Min idle conns = REDIS_POOL_SIZE / 5 (20% sempre ativo)
+
+# ==============================================
+# AWS Configuration
+# ==============================================
+AWS_REGION=us-east-1
+# Região AWS onde os recursos estão provisionados
+
+AWS_ACCESS_KEY_ID=
+# Credenciais AWS (apenas para desenvolvimento local)
+# Em produção, use IAM Roles (ECS Task Role)
+
+AWS_SECRET_ACCESS_KEY=
+# Credenciais AWS (apenas para desenvolvimento local)
+# Em produção, use IAM Roles (ECS Task Role)
+
+# ==============================================
+# QUEUE Configuration
+# ==============================================
+QUEUE_TYPE=sqs
+# Tipo de fila: "memory" (desenvolvimento) ou "sqs" (produção)
+# - memory: Filas em memória (não persiste, apenas para testes locais)
+# - sqs: AWS SQS (produção, alta disponibilidade)
+
+# URLs das filas SQS (obrigatório se QUEUE_TYPE=sqs)
+QUEUE_MASTER_ORDER_URL=https://sqs.us-east-2.amazonaws.com/566529662008/master-order-queue.fifo
+# Fila de entrada de master orders (entrada principal do sistema)
+# Exemplo: https://sqs.us-east-1.amazonaws.com/123456789/oms-master-orders
+
+BITGET_ORDERS_QUEUE_URL=https://sqs.us-east-2.amazonaws.com/566529662008/bitget-orders-queue.fifo
+# Fila de ordens para Bitget (após processamento de master order)
+# Exemplo: https://sqs.us-east-1.amazonaws.com/123456789/oms-bitget-orders
+
+BITGET_FILLED_ORDERS_QUEUE_URL=https://sqs.us-east-2.amazonaws.com/566529662008/bitget-filled-orders-queue.fifo
+# Fila de ordens executadas (fills) da Bitget
+# Exemplo: https://sqs.us-east-1.amazonaws.com/123456789/oms-bitget-fills
+
+BINGX_ORDERS_QUEUE_URL=https://sqs.us-east-2.amazonaws.com/566529662008/bingx-orders-queue.fifo
+# Fila de ordens para BingX
+# Exemplo: https://sqs.us-east-1.amazonaws.com/123456789/oms-bingx-orders
+
+BINGX_FILLED_ORDERS_QUEUE_URL=https://sqs.us-east-2.amazonaws.com/566529662008/bingx-filled-orders-queue.fifo
+# Fila de ordens executadas (fills) da BingX
+# Exemplo: https://sqs.us-east-1.amazonaws.com/123456789/oms-bingx-fills
+
+OKX_ORDERS_QUEUE_URL=https://sqs.us-east-2.amazonaws.com/566529662008/okx-orders-queue.fifo
+# Fila de ordens para OKX
+# Exemplo: https://sqs.us-east-1.amazonaws.com/123456789/oms-okx-orders
+
+OKX_FILLED_ORDERS_URL=https://sqs.us-east-2.amazonaws.com/566529662008/okx-filled-orders-queue.fifo
+# Fila de ordens executadas (fills) da OKX
+# Exemplo: https://sqs.us-east-1.amazonaws.com/123456789/oms-okx-fills
+
+QUEUE_EXECUTION_POLLING_URL=https://sqs.us-east-2.amazonaws.com/566529662008/order-execution-polling-queue.fifo
+# Fila de polling de execuções (DEPRECATED - usar Execution Poller V2)
+# Exemplo: https://sqs.us-east-1.amazonaws.com/123456789/oms-execution-polling
+
+QUEUE_CLIENT_EVENTS_URL=https://sqs.us-east-2.amazonaws.com/566529662008/clients-events-queue
+# Fila de eventos de clientes (CREATE/UPDATE/DELETE)
+# Dual-write: DynamoDB Streams → SQS → Redis cache sync
+# Exemplo: https://sqs.us-east-1.amazonaws.com/123456789/oms-client-events
+
+CLIENT_EVENTS_BATCH_SIZE=10
+# Tamanho do batch para polling SQS (max: 10)
+# Default: 10 mensagens por batch (máximo do SQS)
+
+CLIENT_EVENTS_WAIT_TIME=20
+# Long polling wait time em segundos (0-20)
+# Default: 20 segundos (recomendado para reduzir custos SQS)
+
+CLIENT_EVENTS_WORKERS=5
+# Número de workers concorrentes para processar eventos de clientes
+# Default: 5 workers
+# Ajuste conforme volume de eventos CREATE/UPDATE/DELETE
+
+# ==============================================
+# EXCHANGES Configuration
+# ==============================================
+DEMO_ENVIRONMENT=true
+# true: Usa ambientes de teste das exchanges (quando disponível)
+# false: Usa ambientes de produção (CUIDADO: ordens reais!)
+
+# Bitget API
+BITGET_BASE_URL=https://api.bitget.com
+# URL base da API Bitget
+# Demo: https://api.bitget.com (não tem ambiente demo separado)
+# Prod: https://api.bitget.com
+
+# BingX API
+BING_X_BASE_URL=https://open-api.bingx.com
+# URL base da API BingX
+# Demo: https://open-api-vst.bingx.com (testnet)
+# Prod: https://open-api.bingx.com
+
+# OKX API
+OKX_BASE_URL=https://www.okx.com
+# URL base da API OKX
+# Demo: https://www.okx.com (usa flag x-simulated-trading: 1)
+# Prod: https://www.okx.com
+
+OKX_ORDER_TAG=oms-v1
+# Tag para identificar ordens do OMS na OKX
+# Aparece no campo "tag" das ordens (útil para analytics)
+
+# ==============================================
+# PERFORMANCE Configuration
+# ==============================================
+MASTER_ORDER_WORKERS=50
+# Workers paralelos para processar master orders (entrada do sistema)
+# Default: 50 workers
+# Recomendado: 50-100 para workloads médios
+# Cada worker processa 1 master order por vez
+
+MASTER_ORDER_PROCESSING_WORKERS=200
+# Workers para processar traders dentro de uma master order
+# Default: 200 workers (4x faster processing - benchmark: 316ms → 24ms)
+# Recomendado: 100-300 dependendo do throughput desejado
+# Trade-off: Mais workers = maior throughput, mais memória
+
+# ==============================================
+# EXECUTION STRATEGY
+# ==============================================
+EXECUTION_MODE=direct
+# Estratégia de execução de ordens:
+# - "queue": Envia ordens para SQS (assíncrono, desacoplado)
+# - "direct": Executa ordens diretamente nas exchanges (síncrono, maior throughput)
+#
+# Trade-offs:
+# QUEUE MODE:
+#   ✅ Desacoplado (falha de exchange não afeta ingestion)
+#   ✅ Retry automático (SQS dead-letter queue)
+#   ✅ Backpressure natural (fila absorve picos)
+#   ❌ Latência adicional (~100-500ms)
+#   ❌ Custo SQS
+#
+# DIRECT MODE:
+#   ✅ Menor latência (sem SQS intermediário)
+#   ✅ Menor custo (sem SQS de ordens)
+#   ✅ Maior throughput (sem overhead de serialização)
+#   ❌ Acoplado (falha de exchange pode afetar ingestion)
+#   ❌ Sem retry automático (precisa implementar manualmente)
+
+EXECUTION_WORKERS=300
+# Número de workers para execução direta (usado APENAS no modo "direct")
+# Default: 50 workers
+# Ignorado se EXECUTION_MODE=queue
+# Recomendado: 50-100 workers para ~10k traders
+
+EXECUTION_CONCURRENCY=1
+# Quantas requests paralelas cada worker pode fazer
+# Default: 1 (sequencial, mais seguro)
+# Valores maiores aumentam throughput mas exigem mais memória
+# Cuidado: exchanges têm rate limits (ex: Bitget 100 req/s)
+
+# ==============================================
+# DYNAMODB Configuration
+# ==============================================
+DYNAMODB_TRADING_TABLE=oms_trading_data
+# Nome da tabela DynamoDB para dados de trading
+# Armazena: Orders, Executions (Fills), Positions
+# Partition Key: PK (string) - Composite key baseado em entity type
+# Sort Key: SK (string) - Timestamp ou identifier
+
+DYNAMODB_CONFIG_TABLE=oms_config
+# Nome da tabela DynamoDB para configurações
+# Armazena: Client credentials, Account mappings, Instrument configs
+# Partition Key: PK (string) - Entity type
+# Sort Key: SK (string) - Entity identifier
+
+# ==============================================
+# FEATURES
+# ==============================================
+LOAD_INSTRUMENTS=true
+# Carrega instrumentos das exchanges ao iniciar (sync inicial)
+# true: Sync inicial ao subir + sync agendado (03:00 e 15:00 UTC)
+# false: Apenas sync agendado (startup mais rápido)
+# Recomendado: true (garante cache Redis populado imediatamente)

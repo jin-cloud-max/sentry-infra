@@ -1,0 +1,299 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Cognito User Pool for Sentry Admin with MFA and Role-Based Access",
+  "Parameters": {
+    "Environment": {
+      "Type": "String",
+      "Default": "dev",
+      "AllowedValues": [
+        "dev",
+        "staging",
+        "prod"
+      ],
+      "Description": "Environment name"
+    },
+    "AdminEmail": {
+      "Type": "String",
+      "Default": "",
+      "Description": "Optional - Email of first admin user to create automatically"
+    }
+  },
+  "Conditions": {
+    "CreateInitialAdmin": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "AdminEmail"
+            },
+            ""
+          ]
+        }
+      ]
+    }
+  },
+  "Resources": {
+    "OMSUserPool": {
+      "Type": "AWS::Cognito::UserPool",
+      "Properties": {
+        "UserPoolName": {
+          "Fn::Sub": "oms-users-${Environment}"
+        },
+        "UsernameAttributes": [
+          "email"
+        ],
+        "UsernameConfiguration": {
+          "CaseSensitive": false
+        },
+        "MfaConfiguration": "ON",
+        "EnabledMfas": [
+          "SOFTWARE_TOKEN_MFA"
+        ],
+        "AutoVerifiedAttributes": [
+          "email"
+        ],
+        "Policies": {
+          "PasswordPolicy": {
+            "MinimumLength": 12,
+            "RequireUppercase": true,
+            "RequireLowercase": true,
+            "RequireNumbers": true,
+            "RequireSymbols": true,
+            "TemporaryPasswordValidityDays": 7
+          }
+        },
+        "Schema": [
+          {
+            "Name": "email",
+            "AttributeDataType": "String",
+            "Required": true,
+            "Mutable": false
+          },
+          {
+            "Name": "role",
+            "AttributeDataType": "String",
+            "Mutable": true,
+            "DeveloperOnlyAttribute": false
+          }
+        ],
+        "EmailConfiguration": {
+          "EmailSendingAccount": "COGNITO_DEFAULT"
+        },
+        "AdminCreateUserConfig": {
+          "AllowAdminCreateUserOnly": true,
+          "InviteMessageTemplate": {
+            "EmailSubject": {
+              "Fn::Sub": "Your OMS Admin Access - ${Environment}"
+            },
+            "EmailMessage": "Hello,\n\nYou have been invited to access the OMS Admin panel.\n\nUsername: {username}\nTemporary Password: {####}\n\nIMPORTANT:\n1. On first login, you must create a new password\n2. You will need to configure MFA (two-factor authentication) using Google Authenticator or Authy\n3. The temporary password expires in 7 days\n\nIf you have any questions, please contact the system administrator."
+          }
+        },
+        "AccountRecoverySetting": {
+          "RecoveryMechanisms": [
+            {
+              "Name": "verified_email",
+              "Priority": 1
+            }
+          ]
+        },
+        "UserPoolAddOns": {
+          "AdvancedSecurityMode": "ENFORCED"
+        },
+        "UserPoolTags": {
+          "Environment": {
+            "Ref": "Environment"
+          },
+          "Application": "OMS",
+          "ManagedBy": "CloudFormation",
+          "Project": "OMS",
+          "CostCenter": "Trading"
+        }
+      }
+    },
+    "OMSUserPoolClient": {
+      "Type": "AWS::Cognito::UserPoolClient",
+      "Properties": {
+        "ClientName": {
+          "Fn::Sub": "oms-nextjs-client-${Environment}"
+        },
+        "UserPoolId": {
+          "Ref": "OMSUserPool"
+        },
+        "ExplicitAuthFlows": [
+          "ALLOW_USER_PASSWORD_AUTH",
+          "ALLOW_REFRESH_TOKEN_AUTH",
+          "ALLOW_USER_SRP_AUTH"
+        ],
+        "AccessTokenValidity": 1,
+        "IdTokenValidity": 1,
+        "RefreshTokenValidity": 30,
+        "TokenValidityUnits": {
+          "AccessToken": "hours",
+          "IdToken": "hours",
+          "RefreshToken": "days"
+        },
+        "GenerateSecret": false,
+        "ReadAttributes": [
+          "email",
+          "email_verified",
+          "custom:role"
+        ],
+        "WriteAttributes": [
+          "email"
+        ],
+        "PreventUserExistenceErrors": "ENABLED"
+      }
+    },
+    "OMSAdminGroup": {
+      "Type": "AWS::Cognito::UserPoolGroup",
+      "Properties": {
+        "GroupName": "oms-admin",
+        "Description": "Administrators - Full system access (CRUD for clients, products, users)",
+        "UserPoolId": {
+          "Ref": "OMSUserPool"
+        },
+        "Precedence": 1
+      }
+    },
+    "OMSOperatorGroup": {
+      "Type": "AWS::Cognito::UserPoolGroup",
+      "Properties": {
+        "GroupName": "oms-operator",
+        "Description": "Operators - View clients, products, positions and orders (expandable permissions as needed)",
+        "UserPoolId": {
+          "Ref": "OMSUserPool"
+        },
+        "Precedence": 2
+      }
+    },
+    "OMSViewerGroup": {
+      "Type": "AWS::Cognito::UserPoolGroup",
+      "Properties": {
+        "GroupName": "oms-viewer",
+        "Description": "Viewers - Read-only access for audit and monitoring",
+        "UserPoolId": {
+          "Ref": "OMSUserPool"
+        },
+        "Precedence": 3
+      }
+    },
+    "InitialAdminUser": {
+      "Type": "AWS::Cognito::UserPoolUser",
+      "Condition": "CreateInitialAdmin",
+      "Properties": {
+        "UserPoolId": {
+          "Ref": "OMSUserPool"
+        },
+        "Username": {
+          "Ref": "AdminEmail"
+        },
+        "UserAttributes": [
+          {
+            "Name": "email",
+            "Value": {
+              "Ref": "AdminEmail"
+            }
+          },
+          {
+            "Name": "email_verified",
+            "Value": "true"
+          },
+          {
+            "Name": "custom:role",
+            "Value": "admin"
+          }
+        ],
+        "DesiredDeliveryMediums": [
+          "EMAIL"
+        ],
+        "ForceAliasCreation": false
+      }
+    },
+    "InitialAdminUserGroupAttachment": {
+      "Type": "AWS::Cognito::UserPoolUserToGroupAttachment",
+      "Condition": "CreateInitialAdmin",
+      "DependsOn": [
+        "InitialAdminUser",
+        "OMSAdminGroup"
+      ],
+      "Properties": {
+        "GroupName": {
+          "Ref": "OMSAdminGroup"
+        },
+        "Username": {
+          "Ref": "AdminEmail"
+        },
+        "UserPoolId": {
+          "Ref": "OMSUserPool"
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "UserPoolId": {
+      "Description": "User Pool ID - Use this in your Next.js app",
+      "Value": {
+        "Ref": "OMSUserPool"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${Environment}-oms-user-pool-id"
+        }
+      }
+    },
+    "UserPoolArn": {
+      "Description": "User Pool ARN",
+      "Value": {
+        "Fn::GetAtt": [
+          "OMSUserPool",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${Environment}-oms-user-pool-arn"
+        }
+      }
+    },
+    "UserPoolClientId": {
+      "Description": "User Pool Client ID - Use this in your Next.js app",
+      "Value": {
+        "Ref": "OMSUserPoolClient"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${Environment}-oms-user-pool-client-id"
+        }
+      }
+    },
+    "CognitoRegion": {
+      "Description": "AWS Region for Cognito",
+      "Value": {
+        "Ref": "AWS::Region"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${Environment}-oms-cognito-region"
+        }
+      }
+    },
+    "GroupAdmin": {
+      "Description": "Admin group name",
+      "Value": {
+        "Ref": "OMSAdminGroup"
+      }
+    },
+    "GroupOperator": {
+      "Description": "Operator group name",
+      "Value": {
+        "Ref": "OMSOperatorGroup"
+      }
+    },
+    "GroupViewer": {
+      "Description": "Viewer group name",
+      "Value": {
+        "Ref": "OMSViewerGroup"
+      }
+    }
+  }
+}

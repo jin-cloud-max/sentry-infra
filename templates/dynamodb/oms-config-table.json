@@ -1,0 +1,121 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "DynamoDB table for Sentry Config (Products, Clients)",
+  "Parameters": {
+    "Environment": {
+      "Type": "String",
+      "Default": "dev",
+      "AllowedValues": [
+        "dev",
+        "staging",
+        "prod"
+      ],
+      "Description": "Environment name"
+    },
+    "TableName": {
+      "Type": "String",
+      "Default": "oms_config",
+      "Description": "Name of the DynamoDB table"
+    },
+    "EnablePITR": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
+      "Description": "Enable Point-in-Time Recovery (recommended for production)"
+    }
+  },
+  "Resources": {
+    "OMSConfigTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": {
+          "Fn::Sub": "${TableName}_${Environment}"
+        },
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "PK",
+            "AttributeType": "S"
+          },
+          {
+            "AttributeName": "SK",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "PK",
+            "KeyType": "HASH"
+          },
+          {
+            "AttributeName": "SK",
+            "KeyType": "RANGE"
+          }
+        ],
+        "SSESpecification": {
+          "SSEEnabled": true,
+          "SSEType": "KMS"
+        },
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": {
+            "Ref": "EnablePITR"
+          }
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "OMS Config Table"
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          },
+          {
+            "Key": "Project",
+            "Value": "OMS"
+          },
+          {
+            "Key": "CostCenter",
+            "Value": "Trading"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "TableName": {
+      "Description": "Name of the config DynamoDB table",
+      "Value": {
+        "Ref": "OMSConfigTable"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-TableName"
+        }
+      }
+    },
+    "TableArn": {
+      "Description": "ARN of the config DynamoDB table",
+      "Value": {
+        "Fn::GetAtt": [
+          "OMSConfigTable",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-TableArn"
+        }
+      }
+    }
+  }
+}

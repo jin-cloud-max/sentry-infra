@@ -1,0 +1,383 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "ECS Task Definition for WebSocket Gateway Service - Sentry",
+  "Parameters": {
+    "ProjectName": {
+      "Type": "String",
+      "Default": "sentry",
+      "Description": "Project name"
+    },
+    "Environment": {
+      "Type": "String",
+      "AllowedValues": [
+        "dev",
+        "staging",
+        "prod"
+      ],
+      "Description": "Deployment environment"
+    },
+    "ECSClusterStackName": {
+      "Type": "String",
+      "Description": "ECS Cluster stack name to import outputs"
+    },
+    "ECRRepositoryUri": {
+      "Type": "String",
+      "Description": "ECR repository URI for WebSocket service"
+    },
+    "ImageTag": {
+      "Type": "String",
+      "Default": "latest",
+      "Description": "Docker image tag"
+    },
+    "ContainerCpu": {
+      "Type": "Number",
+      "Default": 256,
+      "AllowedValues": [
+        256,
+        512,
+        1024,
+        2048
+      ],
+      "Description": "CPU units for the container"
+    },
+    "ContainerMemory": {
+      "Type": "Number",
+      "Default": 512,
+      "Description": "Memory in MB for the container"
+    },
+    "ContainerMemoryReservation": {
+      "Type": "Number",
+      "Default": 256,
+      "Description": "Soft memory limit in MB"
+    },
+    "DesiredCount": {
+      "Type": "Number",
+      "Default": 1,
+      "MinValue": 0,
+      "Description": "Desired number of running tasks"
+    },
+    "AppSecretArn": {
+      "Type": "String",
+      "Description": "ARN of the Secrets Manager secret containing sensitive variables"
+    },
+    "BitgetWsUrl": {
+      "Type": "String",
+      "Default": "wss://wspap.bitget.com/v2/ws/private",
+      "Description": "Bitget WebSocket URL"
+    },
+    "BitgetApiUrl": {
+      "Type": "String",
+      "Default": "https://api.bitget.com",
+      "Description": "Bitget REST API URL"
+    },
+    "RedisDb": {
+      "Type": "Number",
+      "Default": 0,
+      "Description": "Redis database (0-15)"
+    },
+    "ContainerPort": {
+      "Type": "Number",
+      "Default": 8080,
+      "Description": "Health check server port"
+    }
+  },
+  "Conditions": {
+    "IsProd": {
+      "Fn::Equals": [
+        {
+          "Ref": "Environment"
+        },
+        "prod"
+      ]
+    }
+  },
+  "Resources": {
+    "TaskDefinition": {
+      "Type": "AWS::ECS::TaskDefinition",
+      "Properties": {
+        "Family": {
+          "Fn::Sub": "${ProjectName}-websocket-${Environment}"
+        },
+        "NetworkMode": "bridge",
+        "RequiresCompatibilities": [
+          "EC2"
+        ],
+        "Cpu": {
+          "Ref": "ContainerCpu"
+        },
+        "Memory": {
+          "Ref": "ContainerMemory"
+        },
+        "ExecutionRoleArn": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${ECSClusterStackName}-TaskExecutionRoleArn"
+          }
+        },
+        "TaskRoleArn": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${ECSClusterStackName}-TaskRoleArn"
+          }
+        },
+        "ContainerDefinitions": [
+          {
+            "Name": "websocket-service",
+            "Image": {
+              "Fn::Sub": "${ECRRepositoryUri}:${ImageTag}"
+            },
+            "Cpu": {
+              "Ref": "ContainerCpu"
+            },
+            "Memory": {
+              "Ref": "ContainerMemory"
+            },
+            "MemoryReservation": {
+              "Ref": "ContainerMemoryReservation"
+            },
+            "Essential": true,
+            "Environment": [
+              {
+                "Name": "APP_ENVIRONMENT",
+                "Value": {
+                  "Ref": "Environment"
+                }
+              },
+              {
+                "Name": "AWS_REGION",
+                "Value": {
+                  "Ref": "AWS::Region"
+                }
+              },
+              {
+                "Name": "BITGET_WS_URL",
+                "Value": {
+                  "Ref": "BitgetWsUrl"
+                }
+              },
+              {
+                "Name": "BITGET_API_URL",
+                "Value": {
+                  "Ref": "BitgetApiUrl"
+                }
+              },
+              {
+                "Name": "REDIS_DB_PORT",
+                "Value": {
+                  "Fn::Sub": "${RedisDb}"
+                }
+              }
+            ],
+            "Secrets": [
+              {
+                "Name": "REDIS_HOST",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:REDIS_HOST::"
+                }
+              },
+              {
+                "Name": "REDIS_PASSWORD",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:REDIS_PASSWORD::"
+                }
+              },
+              {
+                "Name": "DYNAMODB_TABLE_CONFIG_NAME",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:DYNAMODB_CONFIG_TABLE::"
+                }
+              },
+              {
+                "Name": "DYNAMODB_TABLE_TRADING_NAME",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:DYNAMODB_TRADING_TABLE::"
+                }
+              },
+              {
+                "Name": "MASTER_ORDER_QUEUE_URL",
+                "ValueFrom": {
+                  "Fn::Sub": "${AppSecretArn}:QUEUE_MASTER_ORDER_URL::"
+                }
+              }
+            ],
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": {
+                  "Fn::ImportValue": {
+                    "Fn::Sub": "${ECSClusterStackName}-LogGroupName"
+                  }
+                },
+                "awslogs-region": {
+                  "Ref": "AWS::Region"
+                },
+                "awslogs-stream-prefix": "websocket-service"
+              }
+            },
+            "HealthCheck": {
+              "Command": [
+                "CMD-SHELL",
+                "curl -sf http://localhost:8080/health || exit 1"
+              ],
+              "Interval": 30,
+              "Timeout": 5,
+              "Retries": 3,
+              "StartPeriod": 30
+            },
+            "PortMappings": [
+              {
+                "ContainerPort": {
+                  "Ref": "ContainerPort"
+                },
+                "HostPort": 0,
+                "Protocol": "tcp"
+              }
+            ],
+            "StopTimeout": 30,
+            "Ulimits": [
+              {
+                "Name": "nofile",
+                "SoftLimit": 65536,
+                "HardLimit": 65536
+              }
+            ]
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-websocket-task-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "WorkloadType",
+            "Value": "WebSocket"
+          }
+        ]
+      }
+    },
+    "Service": {
+      "Type": "AWS::ECS::Service",
+      "Properties": {
+        "ServiceName": {
+          "Fn::Sub": "${ProjectName}-websocket-service-${Environment}"
+        },
+        "Cluster": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${ECSClusterStackName}-ClusterName"
+          }
+        },
+        "TaskDefinition": {
+          "Ref": "TaskDefinition"
+        },
+        "DesiredCount": {
+          "Ref": "DesiredCount"
+        },
+        "LaunchType": "EC2",
+        "SchedulingStrategy": "REPLICA",
+        "DeploymentConfiguration": {
+          "MaximumPercent": 200,
+          "MinimumHealthyPercent": {
+            "Fn::If": [
+              "IsProd",
+              100,
+              50
+            ]
+          },
+          "DeploymentCircuitBreaker": {
+            "Enable": true,
+            "Rollback": {
+              "Fn::If": [
+                "IsProd",
+                true,
+                false
+              ]
+            }
+          }
+        },
+        "PlacementStrategies": [
+          {
+            "Type": "spread",
+            "Field": "attribute:ecs.availability-zone"
+          },
+          {
+            "Type": "spread",
+            "Field": "instanceId"
+          }
+        ],
+        "HealthCheckGracePeriodSeconds": 60,
+        "EnableECSManagedTags": true,
+        "PropagateTags": "SERVICE",
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-websocket-service-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "TaskDefinitionArn": {
+      "Description": "Task Definition ARN",
+      "Value": {
+        "Ref": "TaskDefinition"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-TaskDefinitionArn"
+        }
+      }
+    },
+    "ServiceName": {
+      "Description": "ECS Service Name",
+      "Value": {
+        "Fn::GetAtt": [
+          "Service",
+          "Name"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ServiceName"
+        }
+      }
+    },
+    "ServiceArn": {
+      "Description": "ECS Service ARN",
+      "Value": {
+        "Ref": "Service"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ServiceArn"
+        }
+      }
+    }
+  }
+}

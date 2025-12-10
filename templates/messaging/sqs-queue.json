@@ -1,0 +1,388 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "SQS Queue for Sentry - Reusable template for Standard or FIFO queues",
+  "Parameters": {
+    "ProjectName": {
+      "Type": "String",
+      "Default": "sentry",
+      "Description": "Project name"
+    },
+    "Environment": {
+      "Type": "String",
+      "AllowedValues": ["dev", "staging", "prod"],
+      "Description": "Deployment environment"
+    },
+    "QueueName": {
+      "Type": "String",
+      "Description": "Queue name (e.g., orders-bitget, executions). For FIFO, .fifo is added automatically"
+    },
+    "QueueType": {
+      "Type": "String",
+      "Default": "standard",
+      "AllowedValues": ["standard", "fifo"],
+      "Description": "Queue type: standard (high throughput) or fifo (guaranteed order)"
+    },
+    "VisibilityTimeout": {
+      "Type": "Number",
+      "Default": 30,
+      "MinValue": 0,
+      "MaxValue": 43200,
+      "Description": "Time in seconds the message stays invisible after being read"
+    },
+    "MessageRetentionPeriod": {
+      "Type": "Number",
+      "Default": 345600,
+      "MinValue": 60,
+      "MaxValue": 1209600,
+      "Description": "Retention in seconds (default: 4 days, max: 14 days)"
+    },
+    "DelaySeconds": {
+      "Type": "Number",
+      "Default": 0,
+      "MinValue": 0,
+      "MaxValue": 900,
+      "Description": "Delay before message becomes available"
+    },
+    "MaxMessageSize": {
+      "Type": "Number",
+      "Default": 262144,
+      "MinValue": 1024,
+      "MaxValue": 262144,
+      "Description": "Maximum size in bytes (max: 256 KB)"
+    },
+    "ReceiveMessageWaitTime": {
+      "Type": "Number",
+      "Default": 20,
+      "MinValue": 0,
+      "MaxValue": 20,
+      "Description": "Long polling wait time (0 = short polling)"
+    },
+    "ContentBasedDeduplication": {
+      "Type": "String",
+      "Default": "true",
+      "AllowedValues": ["true", "false"],
+      "Description": "FIFO only: use content hash for deduplication (prevents duplicates)"
+    },
+    "DeduplicationScope": {
+      "Type": "String",
+      "Default": "queue",
+      "AllowedValues": ["queue", "messageGroup"],
+      "Description": "FIFO only: deduplication scope"
+    },
+    "FifoThroughputLimit": {
+      "Type": "String",
+      "Default": "perQueue",
+      "AllowedValues": ["perQueue", "perMessageGroupId"],
+      "Description": "FIFO only: throughput limit (perMessageGroupId = high throughput mode)"
+    },
+    "EnableDLQ": {
+      "Type": "String",
+      "Default": "true",
+      "AllowedValues": ["true", "false"],
+      "Description": "Create Dead Letter Queue"
+    },
+    "MaxReceiveCount": {
+      "Type": "Number",
+      "Default": 3,
+      "MinValue": 1,
+      "MaxValue": 1000,
+      "Description": "Attempts before sending to DLQ"
+    },
+    "DLQRetentionPeriod": {
+      "Type": "Number",
+      "Default": 1209600,
+      "MinValue": 60,
+      "MaxValue": 1209600,
+      "Description": "DLQ retention (default/max: 14 days)"
+    },
+    "EnableEncryption": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["true", "false"],
+      "Description": "Encryption at rest (SSE-SQS)"
+    }
+  },
+  "Conditions": {
+    "IsFifo": {
+      "Fn::Equals": [{ "Ref": "QueueType" }, "fifo"]
+    },
+    "IsStandard": {
+      "Fn::Equals": [{ "Ref": "QueueType" }, "standard"]
+    },
+    "CreateDLQ": {
+      "Fn::Equals": [{ "Ref": "EnableDLQ" }, "true"]
+    },
+    "CreateFifoDLQ": {
+      "Fn::And": [
+        { "Condition": "IsFifo" },
+        { "Condition": "CreateDLQ" }
+      ]
+    },
+    "CreateStandardDLQ": {
+      "Fn::And": [
+        { "Condition": "IsStandard" },
+        { "Condition": "CreateDLQ" }
+      ]
+    },
+    "EnableSSE": {
+      "Fn::Equals": [{ "Ref": "EnableEncryption" }, "true"]
+    },
+    "EnableContentDedup": {
+      "Fn::And": [
+        { "Condition": "IsFifo" },
+        { "Fn::Equals": [{ "Ref": "ContentBasedDeduplication" }, "true"] }
+      ]
+    }
+  },
+  "Resources": {
+    "StandardDLQ": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateStandardDLQ",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${QueueName}-dlq-${Environment}"
+        },
+        "MessageRetentionPeriod": { "Ref": "DLQRetentionPeriod" },
+        "SqsManagedSseEnabled": {
+          "Fn::If": ["EnableSSE", true, false]
+        },
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-${QueueName}-dlq-${Environment}" } },
+          { "Key": "Environment", "Value": { "Ref": "Environment" } },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "Type", "Value": "dead-letter-queue" },
+          { "Key": "QueueType", "Value": "standard" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+    "FifoDLQ": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "CreateFifoDLQ",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${QueueName}-dlq-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "MessageRetentionPeriod": { "Ref": "DLQRetentionPeriod" },
+        "SqsManagedSseEnabled": {
+          "Fn::If": ["EnableSSE", true, false]
+        },
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-${QueueName}-dlq-${Environment}.fifo" } },
+          { "Key": "Environment", "Value": { "Ref": "Environment" } },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "Type", "Value": "dead-letter-queue" },
+          { "Key": "QueueType", "Value": "fifo" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+    "StandardQueue": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "IsStandard",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${QueueName}-${Environment}"
+        },
+        "VisibilityTimeout": { "Ref": "VisibilityTimeout" },
+        "MessageRetentionPeriod": { "Ref": "MessageRetentionPeriod" },
+        "DelaySeconds": { "Ref": "DelaySeconds" },
+        "MaximumMessageSize": { "Ref": "MaxMessageSize" },
+        "ReceiveMessageWaitTimeSeconds": { "Ref": "ReceiveMessageWaitTime" },
+        "SqsManagedSseEnabled": {
+          "Fn::If": ["EnableSSE", true, false]
+        },
+        "RedrivePolicy": {
+          "Fn::If": [
+            "CreateDLQ",
+            {
+              "deadLetterTargetArn": { "Fn::GetAtt": ["StandardDLQ", "Arn"] },
+              "maxReceiveCount": { "Ref": "MaxReceiveCount" }
+            },
+            { "Ref": "AWS::NoValue" }
+          ]
+        },
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-${QueueName}-${Environment}" } },
+          { "Key": "Environment", "Value": { "Ref": "Environment" } },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "QueueType", "Value": "standard" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+    "FifoQueue": {
+      "Type": "AWS::SQS::Queue",
+      "Condition": "IsFifo",
+      "Properties": {
+        "QueueName": {
+          "Fn::Sub": "${ProjectName}-${QueueName}-${Environment}.fifo"
+        },
+        "FifoQueue": true,
+        "ContentBasedDeduplication": {
+          "Fn::If": ["EnableContentDedup", true, false]
+        },
+        "DeduplicationScope": { "Ref": "DeduplicationScope" },
+        "FifoThroughputLimit": { "Ref": "FifoThroughputLimit" },
+        "VisibilityTimeout": { "Ref": "VisibilityTimeout" },
+        "MessageRetentionPeriod": { "Ref": "MessageRetentionPeriod" },
+        "DelaySeconds": { "Ref": "DelaySeconds" },
+        "MaximumMessageSize": { "Ref": "MaxMessageSize" },
+        "ReceiveMessageWaitTimeSeconds": { "Ref": "ReceiveMessageWaitTime" },
+        "SqsManagedSseEnabled": {
+          "Fn::If": ["EnableSSE", true, false]
+        },
+        "RedrivePolicy": {
+          "Fn::If": [
+            "CreateDLQ",
+            {
+              "deadLetterTargetArn": { "Fn::GetAtt": ["FifoDLQ", "Arn"] },
+              "maxReceiveCount": { "Ref": "MaxReceiveCount" }
+            },
+            { "Ref": "AWS::NoValue" }
+          ]
+        },
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-${QueueName}-${Environment}.fifo" } },
+          { "Key": "Environment", "Value": { "Ref": "Environment" } },
+          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
+          { "Key": "QueueType", "Value": "fifo" },
+          { "Key": "ManagedBy", "Value": "CloudFormation" }
+        ]
+      }
+    },
+    "StandardQueuePolicy": {
+      "Type": "AWS::SQS::QueuePolicy",
+      "Condition": "IsStandard",
+      "Properties": {
+        "Queues": [{ "Ref": "StandardQueue" }],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowSameAccountAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": { "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root" }
+              },
+              "Action": [
+                "sqs:SendMessage",
+                "sqs:ReceiveMessage",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+                "sqs:ChangeMessageVisibility"
+              ],
+              "Resource": { "Fn::GetAtt": ["StandardQueue", "Arn"] }
+            }
+          ]
+        }
+      }
+    },
+    "FifoQueuePolicy": {
+      "Type": "AWS::SQS::QueuePolicy",
+      "Condition": "IsFifo",
+      "Properties": {
+        "Queues": [{ "Ref": "FifoQueue" }],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowSameAccountAccess",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": { "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root" }
+              },
+              "Action": [
+                "sqs:SendMessage",
+                "sqs:ReceiveMessage",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+                "sqs:ChangeMessageVisibility"
+              ],
+              "Resource": { "Fn::GetAtt": ["FifoQueue", "Arn"] }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "QueueUrl": {
+      "Description": "SQS Queue URL",
+      "Value": {
+        "Fn::If": [
+          "IsFifo",
+          { "Ref": "FifoQueue" },
+          { "Ref": "StandardQueue" }
+        ]
+      },
+      "Export": {
+        "Name": { "Fn::Sub": "${AWS::StackName}-QueueUrl" }
+      }
+    },
+    "QueueArn": {
+      "Description": "SQS Queue ARN",
+      "Value": {
+        "Fn::If": [
+          "IsFifo",
+          { "Fn::GetAtt": ["FifoQueue", "Arn"] },
+          { "Fn::GetAtt": ["StandardQueue", "Arn"] }
+        ]
+      },
+      "Export": {
+        "Name": { "Fn::Sub": "${AWS::StackName}-QueueArn" }
+      }
+    },
+    "QueueName": {
+      "Description": "SQS Queue Name",
+      "Value": {
+        "Fn::If": [
+          "IsFifo",
+          { "Fn::GetAtt": ["FifoQueue", "QueueName"] },
+          { "Fn::GetAtt": ["StandardQueue", "QueueName"] }
+        ]
+      },
+      "Export": {
+        "Name": { "Fn::Sub": "${AWS::StackName}-QueueName" }
+      }
+    },
+    "DLQUrl": {
+      "Condition": "CreateDLQ",
+      "Description": "Dead Letter Queue URL",
+      "Value": {
+        "Fn::If": [
+          "IsFifo",
+          { "Ref": "FifoDLQ" },
+          { "Ref": "StandardDLQ" }
+        ]
+      },
+      "Export": {
+        "Name": { "Fn::Sub": "${AWS::StackName}-DLQUrl" }
+      }
+    },
+    "DLQArn": {
+      "Condition": "CreateDLQ",
+      "Description": "Dead Letter Queue ARN",
+      "Value": {
+        "Fn::If": [
+          "IsFifo",
+          { "Fn::GetAtt": ["FifoDLQ", "Arn"] },
+          { "Fn::GetAtt": ["StandardDLQ", "Arn"] }
+        ]
+      },
+      "Export": {
+        "Name": { "Fn::Sub": "${AWS::StackName}-DLQArn" }
+      }
+    },
+    "QueueType": {
+      "Description": "Queue type (standard or fifo)",
+      "Value": { "Ref": "QueueType" },
+      "Export": {
+        "Name": { "Fn::Sub": "${AWS::StackName}-QueueType" }
+      }
+    }
+  }
+}
