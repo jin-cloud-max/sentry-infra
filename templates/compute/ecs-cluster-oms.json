@@ -59,16 +59,6 @@
       "Default": "sentry",
       "Description": "Project name for resource naming"
     },
-    "DynamoDBTableNames": {
-      "Type": "CommaDelimitedList",
-      "Default": "oms-trading,oms-config",
-      "Description": "Comma-separated list of DynamoDB table names (e.g., oms-trading,oms-config)"
-    },
-    "SQSQueueNames": {
-      "Type": "CommaDelimitedList",
-      "Default": "oms-orders-queue",
-      "Description": "Comma-separated list of SQS queue names (can have multiple queues)"
-    },
     "ECSOptimizedAMI": {
       "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
       "Default": "/aws/service/ecs/optimized-ami/amazon-linux-2023/arm64/recommended/image_id",
@@ -99,15 +89,6 @@
             "MaxSize",
             "DesiredCapacity",
             "KeyPairName"
-          ]
-        },
-        {
-          "Label": {
-            "default": "AWS Resources Access"
-          },
-          "Parameters": [
-            "DynamoDBTableNames",
-            "SQSQueueNames"
           ]
         }
       ]
@@ -200,41 +181,6 @@
           {
             "Key": "ManagedBy",
             "Value": "CloudFormation"
-          }
-        ]
-      }
-    },
-    "ECSLogGroup": {
-      "Type": "AWS::Logs::LogGroup",
-      "Properties": {
-        "LogGroupName": {
-          "Fn::Sub": "/ecs/${ProjectName}/oms/${Environment}"
-        },
-        "RetentionInDays": {
-          "Fn::If": [
-            "IsProd",
-            30,
-            7
-          ]
-        },
-        "Tags": [
-          {
-            "Key": "Name",
-            "Value": {
-              "Fn::Sub": "${ProjectName}-oms-logs-${Environment}"
-            }
-          },
-          {
-            "Key": "Environment",
-            "Value": {
-              "Ref": "Environment"
-            }
-          },
-          {
-            "Key": "Project",
-            "Value": {
-              "Ref": "ProjectName"
-            }
           }
         ]
       }
@@ -379,165 +325,6 @@
             "Key": "Name",
             "Value": {
               "Fn::Sub": "${ProjectName}-oms-task-execution-role-${Environment}"
-            }
-          },
-          {
-            "Key": "Environment",
-            "Value": {
-              "Ref": "Environment"
-            }
-          }
-        ]
-      }
-    },
-    "ECSTaskRole": {
-      "Type": "AWS::IAM::Role",
-      "Properties": {
-        "RoleName": {
-          "Fn::Sub": "${ProjectName}-oms-task-role-${Environment}"
-        },
-        "AssumeRolePolicyDocument": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Effect": "Allow",
-              "Principal": {
-                "Service": "ecs-tasks.amazonaws.com"
-              },
-              "Action": "sts:AssumeRole"
-            }
-          ]
-        },
-        "Policies": [
-          {
-            "PolicyName": "DynamoDBFullAccess",
-            "PolicyDocument": {
-              "Version": "2012-10-17",
-              "Statement": [
-                {
-                  "Effect": "Allow",
-                  "Action": [
-                    "dynamodb:BatchGetItem",
-                    "dynamodb:BatchWriteItem",
-                    "dynamodb:DeleteItem",
-                    "dynamodb:GetItem",
-                    "dynamodb:PutItem",
-                    "dynamodb:Query",
-                    "dynamodb:Scan",
-                    "dynamodb:UpdateItem",
-                    "dynamodb:DescribeTable",
-                    "dynamodb:ConditionCheckItem"
-                  ],
-                  "Resource": {
-                    "Fn::Split": [
-                      ",",
-                      {
-                        "Fn::Sub": [
-                          "${TableArns}",
-                          {
-                            "TableArns": {
-                              "Fn::Join": [
-                                ",",
-                                {
-                                  "Fn::Split": [
-                                    ",",
-                                    {
-                                      "Fn::Join": [
-                                        ",",
-                                        {
-                                          "Fn::Split": [
-                                            ",",
-                                            {
-                                              "Fn::Sub": [
-                                                "${Arns}",
-                                                {
-                                                  "Arns": {
-                                                    "Fn::Join": [
-                                                      ",",
-                                                      [
-                                                        {
-                                                          "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectName}-trading-${Environment}"
-                                                        },
-                                                        {
-                                                          "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectName}-trading-${Environment}/*"
-                                                        },
-                                                        {
-                                                          "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectName}-config-${Environment}"
-                                                        },
-                                                        {
-                                                          "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectName}-config-${Environment}/*"
-                                                        }
-                                                      ]
-                                                    ]
-                                                  }
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                }
-              ]
-            }
-          },
-          {
-            "PolicyName": "SQSFullAccess",
-            "PolicyDocument": {
-              "Version": "2012-10-17",
-              "Statement": [
-                {
-                  "Effect": "Allow",
-                  "Action": [
-                    "sqs:SendMessage",
-                    "sqs:ReceiveMessage",
-                    "sqs:DeleteMessage",
-                    "sqs:GetQueueAttributes",
-                    "sqs:GetQueueUrl",
-                    "sqs:ChangeMessageVisibility",
-                    "sqs:PurgeQueue"
-                  ],
-                  "Resource": {
-                    "Fn::Sub": "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${ProjectName}-*-${Environment}*"
-                  }
-                }
-              ]
-            }
-          },
-          {
-            "PolicyName": "CloudWatchLogsAccess",
-            "PolicyDocument": {
-              "Version": "2012-10-17",
-              "Statement": [
-                {
-                  "Effect": "Allow",
-                  "Action": [
-                    "logs:CreateLogGroup",
-                    "logs:CreateLogStream",
-                    "logs:PutLogEvents"
-                  ],
-                  "Resource": {
-                    "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/${ProjectName}/*"
-                  }
-                }
-              ]
-            }
-          }
-        ],
-        "Tags": [
-          {
-            "Key": "Name",
-            "Value": {
-              "Fn::Sub": "${ProjectName}-oms-task-role-${Environment}"
             }
           },
           {
@@ -866,17 +653,6 @@
         }
       }
     },
-    "LogGroupName": {
-      "Description": "CloudWatch Log Group Name for ECS tasks",
-      "Value": {
-        "Ref": "ECSLogGroup"
-      },
-      "Export": {
-        "Name": {
-          "Fn::Sub": "${AWS::StackName}-LogGroupName"
-        }
-      }
-    },
     "TaskExecutionRoleArn": {
       "Description": "Task Execution Role ARN (for pulling images and secrets)",
       "Value": {
@@ -888,20 +664,6 @@
       "Export": {
         "Name": {
           "Fn::Sub": "${AWS::StackName}-TaskExecutionRoleArn"
-        }
-      }
-    },
-    "TaskRoleArn": {
-      "Description": "Task Role ARN (for application permissions: SQS, DynamoDB, CloudWatch)",
-      "Value": {
-        "Fn::GetAtt": [
-          "ECSTaskRole",
-          "Arn"
-        ]
-      },
-      "Export": {
-        "Name": {
-          "Fn::Sub": "${AWS::StackName}-TaskRoleArn"
         }
       }
     },

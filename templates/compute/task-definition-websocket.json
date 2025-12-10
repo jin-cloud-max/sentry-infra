@@ -79,6 +79,20 @@
       "Type": "Number",
       "Default": 8080,
       "Description": "Health check server port"
+    },
+    "DynamoDBConfigTable": {
+      "Type": "String",
+      "Default": "oms_config",
+      "Description": "DynamoDB config table name (without environment suffix)"
+    },
+    "DynamoDBTradingTable": {
+      "Type": "String",
+      "Default": "oms_trading_data",
+      "Description": "DynamoDB trading data table name (without environment suffix)"
+    },
+    "SQSQueueArnPrefix": {
+      "Type": "String",
+      "Description": "SQS queue ARN prefix (e.g., arn:aws:sqs:us-east-1:123456789)"
     }
   },
   "Conditions": {
@@ -92,8 +106,154 @@
     }
   },
   "Resources": {
+    "LogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/ecs/${ProjectName}/websocket-service/${Environment}"
+        },
+        "RetentionInDays": {
+          "Fn::If": ["IsProd", 30, 7]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {"Fn::Sub": "${ProjectName}-websocket-service-logs-${Environment}"}
+          },
+          {
+            "Key": "Environment",
+            "Value": {"Ref": "Environment"}
+          },
+          {
+            "Key": "Project",
+            "Value": {"Ref": "ProjectName"}
+          },
+          {
+            "Key": "Service",
+            "Value": "websocket-service"
+          }
+        ]
+      }
+    },
+    "TaskRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "${ProjectName}-websocket-service-task-role-${Environment}"
+        },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "DynamoDBAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:BatchGetItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan",
+                    "dynamodb:DescribeTable"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBConfigTable}_${Environment}"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBConfigTable}_${Environment}/index/*"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBTradingTable}_${Environment}"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBTradingTable}_${Environment}/index/*"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "SQSSendAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "sqs:SendMessage",
+                    "sqs:GetQueueAttributes",
+                    "sqs:GetQueueUrl"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "${SQSQueueArnPrefix}:*-${Environment}*"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "CloudWatchLogsAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents",
+                    "logs:DescribeLogStreams"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/${ProjectName}/websocket-service/${Environment}*"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-websocket-service-task-role-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "Service",
+            "Value": "websocket"
+          }
+        ]
+      }
+    },
     "TaskDefinition": {
       "Type": "AWS::ECS::TaskDefinition",
+      "DependsOn": "LogGroup",
       "Properties": {
         "Family": {
           "Fn::Sub": "${ProjectName}-websocket-${Environment}"
@@ -114,9 +274,7 @@
           }
         },
         "TaskRoleArn": {
-          "Fn::ImportValue": {
-            "Fn::Sub": "${ECSClusterStackName}-TaskRoleArn"
-          }
+          "Fn::GetAtt": ["TaskRole", "Arn"]
         },
         "ContainerDefinitions": [
           {
@@ -202,9 +360,7 @@
               "LogDriver": "awslogs",
               "Options": {
                 "awslogs-group": {
-                  "Fn::ImportValue": {
-                    "Fn::Sub": "${ECSClusterStackName}-LogGroupName"
-                  }
+                  "Ref": "LogGroup"
                 },
                 "awslogs-region": {
                   "Ref": "AWS::Region"
@@ -376,6 +532,28 @@
       "Export": {
         "Name": {
           "Fn::Sub": "${AWS::StackName}-ServiceArn"
+        }
+      }
+    },
+    "TaskRoleArn": {
+      "Description": "WebSocket Task Role ARN",
+      "Value": {
+        "Fn::GetAtt": ["TaskRole", "Arn"]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-TaskRoleArn"
+        }
+      }
+    },
+    "LogGroupName": {
+      "Description": "WebSocket CloudWatch Log Group Name",
+      "Value": {
+        "Ref": "LogGroup"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-LogGroupName"
         }
       }
     }

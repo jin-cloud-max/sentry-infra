@@ -55,14 +55,6 @@
       "MinValue": 1,
       "Description": "Desired capacity of Auto Scaling Group"
     },
-    "SQSQueueNames": {
-      "Type": "CommaDelimitedList",
-      "Description": "Comma-separated list of SQS queue names (e.g., orders-queue,websocket-events-queue)"
-    },
-    "DynamoDBTableNames": {
-      "Type": "CommaDelimitedList",
-      "Description": "Comma-separated list of DynamoDB table names"
-    },
     "KeyPairName": {
       "Type": "String",
       "Description": "Key Pair name for SSH access to instances (optional)",
@@ -242,128 +234,6 @@
                     "s3:GetBucketLocation"
                   ],
                   "Resource": "arn:aws:s3:::*"
-                }
-              ]
-            }
-          }
-        ],
-        "Tags": [
-          {
-            "Key": "Environment",
-            "Value": { "Ref": "Environment" }
-          },
-          {
-            "Key": "Project",
-            "Value": { "Ref": "ProjectName" }
-          }
-        ]
-      }
-    },
-    "ECSTaskRole": {
-      "Type": "AWS::IAM::Role",
-      "Properties": {
-        "RoleName": {
-          "Fn::Sub": "${ProjectName}-gateway-task-role-${Environment}"
-        },
-        "AssumeRolePolicyDocument": {
-          "Version": "2012-10-17",
-          "Statement": [
-            {
-              "Effect": "Allow",
-              "Principal": {
-                "Service": "ecs-tasks.amazonaws.com"
-              },
-              "Action": "sts:AssumeRole"
-            }
-          ]
-        },
-        "Policies": [
-          {
-            "PolicyName": "SQSAccess",
-            "PolicyDocument": {
-              "Version": "2012-10-17",
-              "Statement": [
-                {
-                  "Effect": "Allow",
-                  "Action": [
-                    "sqs:SendMessage",
-                    "sqs:ReceiveMessage",
-                    "sqs:DeleteMessage",
-                    "sqs:GetQueueAttributes",
-                    "sqs:GetQueueUrl",
-                    "sqs:ChangeMessageVisibility",
-                    "sqs:PurgeQueue"
-                  ],
-                  "Resource": {
-                    "Fn::Sub": "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:*"
-                  }
-                }
-              ]
-            }
-          },
-          {
-            "PolicyName": "DynamoDBAccess",
-            "PolicyDocument": {
-              "Version": "2012-10-17",
-              "Statement": [
-                {
-                  "Effect": "Allow",
-                  "Action": [
-                    "dynamodb:BatchGetItem",
-                    "dynamodb:BatchWriteItem",
-                    "dynamodb:DeleteItem",
-                    "dynamodb:GetItem",
-                    "dynamodb:PutItem",
-                    "dynamodb:Query",
-                    "dynamodb:Scan",
-                    "dynamodb:UpdateItem",
-                    "dynamodb:DescribeTable",
-                    "dynamodb:ConditionCheckItem"
-                  ],
-                  "Resource": [
-                    {
-                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/*"
-                    },
-                    {
-                      "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/*/index/*"
-                    }
-                  ]
-                }
-              ]
-            }
-          },
-          {
-            "PolicyName": "CloudWatchLogsAccess",
-            "PolicyDocument": {
-              "Version": "2012-10-17",
-              "Statement": [
-                {
-                  "Effect": "Allow",
-                  "Action": [
-                    "logs:CreateLogGroup",
-                    "logs:CreateLogStream",
-                    "logs:PutLogEvents",
-                    "logs:DescribeLogStreams"
-                  ],
-                  "Resource": {
-                    "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/${ProjectName}-gateway-${Environment}*"
-                  }
-                }
-              ]
-            }
-          },
-          {
-            "PolicyName": "ElastiCacheAccess",
-            "PolicyDocument": {
-              "Version": "2012-10-17",
-              "Statement": [
-                {
-                  "Effect": "Allow",
-                  "Action": [
-                    "elasticache:DescribeCacheClusters",
-                    "elasticache:DescribeReplicationGroups"
-                  ],
-                  "Resource": "*"
                 }
               ]
             }
@@ -591,17 +461,6 @@
           }
         ]
       }
-    },
-    "CloudWatchLogGroup": {
-      "Type": "AWS::Logs::LogGroup",
-      "Properties": {
-        "LogGroupName": {
-          "Fn::Sub": "/ecs/${ProjectName}-gateway-${Environment}"
-        },
-        "RetentionInDays": {
-          "Fn::If": ["IsProd", 30, 7]
-        }
-      }
     }
   },
   "Outputs": {
@@ -645,17 +504,6 @@
         }
       }
     },
-    "TaskRoleArn": {
-      "Description": "Task Role ARN with application permissions",
-      "Value": {
-        "Fn::GetAtt": ["ECSTaskRole", "Arn"]
-      },
-      "Export": {
-        "Name": {
-          "Fn::Sub": "${AWS::StackName}-TaskRoleArn"
-        }
-      }
-    },
     "AutoScalingGroupName": {
       "Description": "Auto Scaling Group Name",
       "Value": { "Ref": "AutoScalingGroup" },
@@ -671,17 +519,6 @@
       "Export": {
         "Name": {
           "Fn::Sub": "${AWS::StackName}-CapacityProviderName"
-        }
-      }
-    },
-    "LogGroupName": {
-      "Description": "CloudWatch Log Group Name",
-      "Value": {
-        "Fn::Sub": "/ecs/${ProjectName}-gateway-${Environment}"
-      },
-      "Export": {
-        "Name": {
-          "Fn::Sub": "${AWS::StackName}-LogGroupName"
         }
       }
     }
