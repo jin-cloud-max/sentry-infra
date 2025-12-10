@@ -109,6 +109,10 @@
       "Type": "String",
       "Default": "oms_trading_data",
       "Description": "DynamoDB trading data table name"
+    },
+    "SQSClientEventsQueueArn": {
+      "Type": "String",
+      "Description": "ARN of the SQS queue for publishing client events to OMS"
     }
   },
   "Conditions": {
@@ -146,6 +150,35 @@
     }
   },
   "Resources": {
+    "LogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/ecs/${ProjectName}/frontend-admin/${Environment}"
+        },
+        "RetentionInDays": {
+          "Fn::If": ["IsProd", 30, 7]
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {"Fn::Sub": "${ProjectName}-frontend-admin-logs-${Environment}"}
+          },
+          {
+            "Key": "Environment",
+            "Value": {"Ref": "Environment"}
+          },
+          {
+            "Key": "Project",
+            "Value": {"Ref": "ProjectName"}
+          },
+          {
+            "Key": "Service",
+            "Value": "frontend-admin"
+          }
+        ]
+      }
+    },
     "TaskRole": {
       "Type": "AWS::IAM::Role",
       "Properties": {
@@ -248,6 +281,25 @@
                 }
               ]
             }
+          },
+          {
+            "PolicyName": "SQSPublishAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "sqs:SendMessage",
+                    "sqs:GetQueueAttributes",
+                    "sqs:GetQueueUrl"
+                  ],
+                  "Resource": {
+                    "Ref": "SQSClientEventsQueueArn"
+                  }
+                }
+              ]
+            }
           }
         ],
         "Tags": [
@@ -278,6 +330,7 @@
     },
     "TaskDefinition": {
       "Type": "AWS::ECS::TaskDefinition",
+      "DependsOn": "LogGroup",
       "Properties": {
         "Family": {
           "Fn::Sub": "${ProjectName}-frontend-admin-${Environment}"
@@ -407,6 +460,12 @@
                     "Name": "REDIS_URL",
                     "ValueFrom": {
                       "Fn::Sub": "${SecretsArn}:REDIS_HOST::"
+                    }
+                  },
+                  {
+                    "Name": "SQS_CLIENT_EVENTS_QUEUE_URL",
+                    "ValueFrom": {
+                      "Fn::Sub": "${SecretsArn}:SQS_CLIENT_EVENTS_QUEUE_URL::"
                     }
                   }
                 ],
@@ -620,6 +679,17 @@
       "Export": {
         "Name": {
           "Fn::Sub": "${AWS::StackName}-TaskRoleArn"
+        }
+      }
+    },
+    "LogGroupName": {
+      "Description": "Frontend Admin CloudWatch Log Group Name",
+      "Value": {
+        "Ref": "LogGroup"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-LogGroupName"
         }
       }
     }

@@ -1,11 +1,14 @@
 {
   "AWSTemplateFormatVersion": "2010-09-09",
   "Description": "ECS Cluster for Sentry - OMS Processing Cluster with EC2 instances, Auto Scaling, and full IAM permissions for SQS and DynamoDB",
-
   "Parameters": {
     "Environment": {
       "Type": "String",
-      "AllowedValues": ["dev", "staging", "prod"],
+      "AllowedValues": [
+        "dev",
+        "staging",
+        "prod"
+      ],
       "Description": "Environment name"
     },
     "VPCStackName": {
@@ -16,8 +19,15 @@
       "Type": "String",
       "Default": "t4g.small",
       "AllowedValues": [
-        "t4g.micro", "t4g.small", "t4g.medium", "t4g.large",
-        "c7g.medium", "c7g.large", "c7g.xlarge", "c7g.2xlarge", "c7g.4xlarge"
+        "t4g.micro",
+        "t4g.small",
+        "t4g.medium",
+        "t4g.large",
+        "c7g.medium",
+        "c7g.large",
+        "c7g.xlarge",
+        "c7g.2xlarge",
+        "c7g.4xlarge"
       ],
       "Description": "EC2 instance type ARM64 - Dev: T4g Graviton2, Prod: C7g Graviton3"
     },
@@ -65,80 +75,184 @@
       "Description": "ECS-optimized Amazon Linux 2023 ARM64 AMI (auto-updated via SSM Parameter Store)"
     }
   },
-
   "Metadata": {
     "AWS::CloudFormation::Interface": {
       "ParameterGroups": [
         {
-          "Label": { "default": "Environment Configuration" },
-          "Parameters": ["Environment", "ProjectName", "VPCStackName"]
+          "Label": {
+            "default": "Environment Configuration"
+          },
+          "Parameters": [
+            "Environment",
+            "ProjectName",
+            "VPCStackName"
+          ]
         },
         {
-          "Label": { "default": "EC2 Instance Configuration" },
-          "Parameters": ["InstanceType", "ECSOptimizedAMI", "MinSize", "MaxSize", "DesiredCapacity", "KeyPairName"]
+          "Label": {
+            "default": "EC2 Instance Configuration"
+          },
+          "Parameters": [
+            "InstanceType",
+            "ECSOptimizedAMI",
+            "MinSize",
+            "MaxSize",
+            "DesiredCapacity",
+            "KeyPairName"
+          ]
         },
         {
-          "Label": { "default": "AWS Resources Access" },
-          "Parameters": ["DynamoDBTableNames", "SQSQueueNames"]
+          "Label": {
+            "default": "AWS Resources Access"
+          },
+          "Parameters": [
+            "DynamoDBTableNames",
+            "SQSQueueNames"
+          ]
         }
       ]
     }
   },
-
-
   "Conditions": {
-    "HasKeyPair": { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "KeyPairName" }, ""] }] },
-    "IsProd": { "Fn::Equals": [{ "Ref": "Environment" }, "prod"] },
-    "IsMultiAZ": { "Fn::Or": [
-      { "Fn::Equals": [{ "Ref": "Environment" }, "staging"] },
-      { "Fn::Equals": [{ "Ref": "Environment" }, "prod"] }
-    ]}
+    "HasKeyPair": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "KeyPairName"
+            },
+            ""
+          ]
+        }
+      ]
+    },
+    "IsProd": {
+      "Fn::Equals": [
+        {
+          "Ref": "Environment"
+        },
+        "prod"
+      ]
+    },
+    "IsMultiAZ": {
+      "Fn::Or": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "Environment"
+            },
+            "staging"
+          ]
+        },
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "Environment"
+            },
+            "prod"
+          ]
+        }
+      ]
+    }
   },
-
   "Resources": {
     "ECSCluster": {
       "Type": "AWS::ECS::Cluster",
       "Properties": {
-        "ClusterName": { "Fn::Sub": "${ProjectName}-oms-cluster-${Environment}" },
+        "ClusterName": {
+          "Fn::Sub": "${ProjectName}-oms-cluster-${Environment}"
+        },
         "ClusterSettings": [
           {
             "Name": "containerInsights",
-            "Value": { "Fn::If": ["IsProd", "enabled", "disabled"] }
+            "Value": {
+              "Fn::If": [
+                "IsProd",
+                "enabled",
+                "disabled"
+              ]
+            }
           }
         ],
         "Tags": [
-          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-oms-cluster-${Environment}" } },
-          { "Key": "Environment", "Value": { "Ref": "Environment" } },
-          { "Key": "Project", "Value": { "Ref": "ProjectName" } },
-          { "Key": "Purpose", "Value": "OMS Processing Cluster" },
-          { "Key": "ManagedBy", "Value": "CloudFormation" }
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-oms-cluster-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          },
+          {
+            "Key": "Purpose",
+            "Value": "OMS Processing Cluster"
+          },
+          {
+            "Key": "ManagedBy",
+            "Value": "CloudFormation"
+          }
         ]
       }
     },
-
     "ECSLogGroup": {
       "Type": "AWS::Logs::LogGroup",
       "Properties": {
-        "LogGroupName": { "Fn::Sub": "/ecs/${ProjectName}/oms/${Environment}" },
-        "RetentionInDays": { "Fn::If": ["IsProd", 30, 7] },
+        "LogGroupName": {
+          "Fn::Sub": "/ecs/${ProjectName}/oms/${Environment}"
+        },
+        "RetentionInDays": {
+          "Fn::If": [
+            "IsProd",
+            30,
+            7
+          ]
+        },
         "Tags": [
-          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-oms-logs-${Environment}" } },
-          { "Key": "Environment", "Value": { "Ref": "Environment" } },
-          { "Key": "Project", "Value": { "Ref": "ProjectName" } }
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-oms-logs-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          }
         ]
       }
     },
-
     "ECSInstanceRole": {
       "Type": "AWS::IAM::Role",
       "Properties": {
-        "RoleName": { "Fn::Sub": "${ProjectName}-oms-instance-role-${Environment}" },
+        "RoleName": {
+          "Fn::Sub": "${ProjectName}-oms-instance-role-${Environment}"
+        },
         "AssumeRolePolicyDocument": {
           "Version": "2012-10-17",
           "Statement": [
             {
               "Effect": "Allow",
-              "Principal": { "Service": "ec2.amazonaws.com" },
+              "Principal": {
+                "Service": "ec2.amazonaws.com"
+              },
               "Action": "sts:AssumeRole"
             }
           ]
@@ -149,30 +263,48 @@
           "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
         ],
         "Tags": [
-          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-oms-instance-role-${Environment}" } },
-          { "Key": "Environment", "Value": { "Ref": "Environment" } }
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-oms-instance-role-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          }
         ]
       }
     },
-
     "ECSInstanceProfile": {
       "Type": "AWS::IAM::InstanceProfile",
       "Properties": {
-        "InstanceProfileName": { "Fn::Sub": "${ProjectName}-oms-instance-profile-${Environment}" },
-        "Roles": [{ "Ref": "ECSInstanceRole" }]
+        "InstanceProfileName": {
+          "Fn::Sub": "${ProjectName}-oms-instance-profile-${Environment}"
+        },
+        "Roles": [
+          {
+            "Ref": "ECSInstanceRole"
+          }
+        ]
       }
     },
-
     "ECSTaskExecutionRole": {
       "Type": "AWS::IAM::Role",
       "Properties": {
-        "RoleName": { "Fn::Sub": "${ProjectName}-oms-task-execution-role-${Environment}" },
+        "RoleName": {
+          "Fn::Sub": "${ProjectName}-oms-task-execution-role-${Environment}"
+        },
         "AssumeRolePolicyDocument": {
           "Version": "2012-10-17",
           "Statement": [
             {
               "Effect": "Allow",
-              "Principal": { "Service": "ecs-tasks.amazonaws.com" },
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              },
               "Action": "sts:AssumeRole"
             }
           ]
@@ -193,8 +325,12 @@
                     "secretsmanager:DescribeSecret"
                   ],
                   "Resource": [
-                    { "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}/${Environment}*" },
-                    { "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}/${Environment}/*" }
+                    {
+                      "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}/${Environment}*"
+                    },
+                    {
+                      "Fn::Sub": "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}/${Environment}/*"
+                    }
                   ]
                 },
                 {
@@ -206,7 +342,9 @@
                   "Resource": "*",
                   "Condition": {
                     "StringEquals": {
-                      "kms:ViaService": { "Fn::Sub": "secretsmanager.${AWS::Region}.amazonaws.com" }
+                      "kms:ViaService": {
+                        "Fn::Sub": "secretsmanager.${AWS::Region}.amazonaws.com"
+                      }
                     }
                   }
                 }
@@ -237,22 +375,35 @@
           }
         ],
         "Tags": [
-          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-oms-task-execution-role-${Environment}" } },
-          { "Key": "Environment", "Value": { "Ref": "Environment" } }
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-oms-task-execution-role-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          }
         ]
       }
     },
-
     "ECSTaskRole": {
       "Type": "AWS::IAM::Role",
       "Properties": {
-        "RoleName": { "Fn::Sub": "${ProjectName}-oms-task-role-${Environment}" },
+        "RoleName": {
+          "Fn::Sub": "${ProjectName}-oms-task-role-${Environment}"
+        },
         "AssumeRolePolicyDocument": {
           "Version": "2012-10-17",
           "Statement": [
             {
               "Effect": "Allow",
-              "Principal": { "Service": "ecs-tasks.amazonaws.com" },
+              "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+              },
               "Action": "sts:AssumeRole"
             }
           ]
@@ -304,10 +455,18 @@
                                                     "Fn::Join": [
                                                       ",",
                                                       [
-                                                        { "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectName}-trading-${Environment}" },
-                                                        { "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectName}-trading-${Environment}/*" },
-                                                        { "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectName}-config-${Environment}" },
-                                                        { "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectName}-config-${Environment}/*" }
+                                                        {
+                                                          "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectName}-trading-${Environment}"
+                                                        },
+                                                        {
+                                                          "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectName}-trading-${Environment}/*"
+                                                        },
+                                                        {
+                                                          "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectName}-config-${Environment}"
+                                                        },
+                                                        {
+                                                          "Fn::Sub": "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectName}-config-${Environment}/*"
+                                                        }
                                                       ]
                                                     ]
                                                   }
@@ -347,7 +506,9 @@
                     "sqs:ChangeMessageVisibility",
                     "sqs:PurgeQueue"
                   ],
-                  "Resource": { "Fn::Sub": "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${ProjectName}-*-${Environment}*" }
+                  "Resource": {
+                    "Fn::Sub": "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${ProjectName}-*-${Environment}*"
+                  }
                 }
               ]
             }
@@ -364,26 +525,41 @@
                     "logs:CreateLogStream",
                     "logs:PutLogEvents"
                   ],
-                  "Resource": { "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/${ProjectName}/*" }
+                  "Resource": {
+                    "Fn::Sub": "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/${ProjectName}/*"
+                  }
                 }
               ]
             }
           }
         ],
         "Tags": [
-          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-oms-task-role-${Environment}" } },
-          { "Key": "Environment", "Value": { "Ref": "Environment" } }
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-oms-task-role-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          }
         ]
       }
     },
-
     "ECSSecurityGroup": {
       "Type": "AWS::EC2::SecurityGroup",
       "Properties": {
-        "GroupName": { "Fn::Sub": "${ProjectName}-oms-sg-${Environment}" },
+        "GroupName": {
+          "Fn::Sub": "${ProjectName}-oms-sg-${Environment}"
+        },
         "GroupDescription": "Security group for OMS ECS cluster instances",
         "VpcId": {
-          "Fn::ImportValue": { "Fn::Sub": "${VPCStackName}-VPCId" }
+          "Fn::ImportValue": {
+            "Fn::Sub": "${VPCStackName}-VPCId"
+          }
         },
         "SecurityGroupIngress": [],
         "SecurityGroupEgress": [
@@ -394,29 +570,68 @@
           }
         ],
         "Tags": [
-          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-oms-sg-${Environment}" } },
-          { "Key": "Environment", "Value": { "Ref": "Environment" } },
-          { "Key": "Project", "Value": { "Ref": "ProjectName" } }
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-oms-sg-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            }
+          }
         ]
       }
     },
-
     "ECSLaunchTemplate": {
       "Type": "AWS::EC2::LaunchTemplate",
       "Properties": {
-        "LaunchTemplateName": { "Fn::Sub": "${ProjectName}-oms-lt-${Environment}" },
+        "LaunchTemplateName": {
+          "Fn::Sub": "${ProjectName}-oms-lt-${Environment}"
+        },
         "LaunchTemplateData": {
-          "ImageId": { "Ref": "ECSOptimizedAMI" },
-          "InstanceType": { "Ref": "InstanceType" },
-          "IamInstanceProfile": {
-            "Arn": { "Fn::GetAtt": ["ECSInstanceProfile", "Arn"] }
+          "ImageId": {
+            "Ref": "ECSOptimizedAMI"
           },
-          "KeyName": { "Fn::If": ["HasKeyPair", { "Ref": "KeyPairName" }, { "Ref": "AWS::NoValue" }] },
+          "InstanceType": {
+            "Ref": "InstanceType"
+          },
+          "IamInstanceProfile": {
+            "Arn": {
+              "Fn::GetAtt": [
+                "ECSInstanceProfile",
+                "Arn"
+              ]
+            }
+          },
+          "KeyName": {
+            "Fn::If": [
+              "HasKeyPair",
+              {
+                "Ref": "KeyPairName"
+              },
+              {
+                "Ref": "AWS::NoValue"
+              }
+            ]
+          },
           "NetworkInterfaces": [
             {
               "DeviceIndex": 0,
               "AssociatePublicIpAddress": false,
-              "Groups": [{ "Ref": "ECSSecurityGroup" }],
+              "Groups": [
+                {
+                  "Ref": "ECSSecurityGroup"
+                }
+              ],
               "Description": "Primary network interface - private subnet only"
             }
           ],
@@ -426,16 +641,40 @@
             }
           },
           "Monitoring": {
-            "Enabled": { "Fn::If": ["IsProd", true, false] }
+            "Enabled": {
+              "Fn::If": [
+                "IsProd",
+                true,
+                false
+              ]
+            }
           },
           "TagSpecifications": [
             {
               "ResourceType": "instance",
               "Tags": [
-                { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-oms-instance-${Environment}" } },
-                { "Key": "Environment", "Value": { "Ref": "Environment" } },
-                { "Key": "Project", "Value": { "Ref": "ProjectName" } },
-                { "Key": "Cluster", "Value": "OMS" }
+                {
+                  "Key": "Name",
+                  "Value": {
+                    "Fn::Sub": "${ProjectName}-oms-instance-${Environment}"
+                  }
+                },
+                {
+                  "Key": "Environment",
+                  "Value": {
+                    "Ref": "Environment"
+                  }
+                },
+                {
+                  "Key": "Project",
+                  "Value": {
+                    "Ref": "ProjectName"
+                  }
+                },
+                {
+                  "Key": "Cluster",
+                  "Value": "OMS"
+                }
               ]
             }
           ]
@@ -444,76 +683,156 @@
           {
             "ResourceType": "launch-template",
             "Tags": [
-              { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-oms-lt-${Environment}" } },
-              { "Key": "Environment", "Value": { "Ref": "Environment" } }
+              {
+                "Key": "Name",
+                "Value": {
+                  "Fn::Sub": "${ProjectName}-oms-lt-${Environment}"
+                }
+              },
+              {
+                "Key": "Environment",
+                "Value": {
+                  "Ref": "Environment"
+                }
+              }
             ]
           }
         ]
       }
     },
-
     "ECSAutoScalingGroup": {
       "Type": "AWS::AutoScaling::AutoScalingGroup",
       "Properties": {
-        "AutoScalingGroupName": { "Fn::Sub": "${ProjectName}-oms-asg-${Environment}" },
-        "MinSize": { "Ref": "MinSize" },
-        "MaxSize": { "Ref": "MaxSize" },
-        "DesiredCapacity": { "Ref": "DesiredCapacity" },
+        "AutoScalingGroupName": {
+          "Fn::Sub": "${ProjectName}-oms-asg-${Environment}"
+        },
+        "MinSize": {
+          "Ref": "MinSize"
+        },
+        "MaxSize": {
+          "Ref": "MaxSize"
+        },
+        "DesiredCapacity": {
+          "Ref": "DesiredCapacity"
+        },
         "HealthCheckType": "EC2",
         "HealthCheckGracePeriod": 300,
         "VPCZoneIdentifier": {
           "Fn::If": [
             "IsMultiAZ",
             [
-              { "Fn::ImportValue": { "Fn::Sub": "${VPCStackName}-PrivateSubnetOMSAZ1" } },
-              { "Fn::ImportValue": { "Fn::Sub": "${VPCStackName}-PrivateSubnetOMSAZ2" } }
+              {
+                "Fn::ImportValue": {
+                  "Fn::Sub": "${VPCStackName}-PrivateSubnetOMSAZ1"
+                }
+              },
+              {
+                "Fn::ImportValue": {
+                  "Fn::Sub": "${VPCStackName}-PrivateSubnetOMSAZ2"
+                }
+              }
             ],
             [
-              { "Fn::ImportValue": { "Fn::Sub": "${VPCStackName}-PrivateSubnetOMSAZ1" } }
+              {
+                "Fn::ImportValue": {
+                  "Fn::Sub": "${VPCStackName}-PrivateSubnetOMSAZ1"
+                }
+              }
             ]
           ]
         },
         "LaunchTemplate": {
-          "LaunchTemplateId": { "Ref": "ECSLaunchTemplate" },
-          "Version": { "Fn::GetAtt": ["ECSLaunchTemplate", "LatestVersionNumber"] }
+          "LaunchTemplateId": {
+            "Ref": "ECSLaunchTemplate"
+          },
+          "Version": {
+            "Fn::GetAtt": [
+              "ECSLaunchTemplate",
+              "LatestVersionNumber"
+            ]
+          }
         },
         "Tags": [
-          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-oms-asg-${Environment}" }, "PropagateAtLaunch": true },
-          { "Key": "Environment", "Value": { "Ref": "Environment" }, "PropagateAtLaunch": true },
-          { "Key": "Project", "Value": { "Ref": "ProjectName" }, "PropagateAtLaunch": true }
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-oms-asg-${Environment}"
+            },
+            "PropagateAtLaunch": true
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            },
+            "PropagateAtLaunch": true
+          },
+          {
+            "Key": "Project",
+            "Value": {
+              "Ref": "ProjectName"
+            },
+            "PropagateAtLaunch": true
+          }
         ]
       }
     },
-
     "ECSCapacityProvider": {
       "Type": "AWS::ECS::CapacityProvider",
       "Properties": {
-        "Name": { "Fn::Sub": "${ProjectName}-oms-capacity-provider-${Environment}" },
+        "Name": {
+          "Fn::Sub": "${ProjectName}-oms-capacity-provider-${Environment}"
+        },
         "AutoScalingGroupProvider": {
-          "AutoScalingGroupArn": { "Ref": "ECSAutoScalingGroup" },
+          "AutoScalingGroupArn": {
+            "Ref": "ECSAutoScalingGroup"
+          },
           "ManagedScaling": {
             "Status": "ENABLED",
             "TargetCapacity": 80,
             "MinimumScalingStepSize": 1,
             "MaximumScalingStepSize": 4
           },
-          "ManagedTerminationProtection": { "Fn::If": ["IsProd", "ENABLED", "DISABLED"] }
+          "ManagedTerminationProtection": {
+            "Fn::If": [
+              "IsProd",
+              "ENABLED",
+              "DISABLED"
+            ]
+          }
         },
         "Tags": [
-          { "Key": "Name", "Value": { "Fn::Sub": "${ProjectName}-oms-cp-${Environment}" } },
-          { "Key": "Environment", "Value": { "Ref": "Environment" } }
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ProjectName}-oms-cp-${Environment}"
+            }
+          },
+          {
+            "Key": "Environment",
+            "Value": {
+              "Ref": "Environment"
+            }
+          }
         ]
       }
     },
-
     "ClusterCapacityProviderAssociation": {
       "Type": "AWS::ECS::ClusterCapacityProviderAssociations",
       "Properties": {
-        "Cluster": { "Ref": "ECSCluster" },
-        "CapacityProviders": [{ "Ref": "ECSCapacityProvider" }],
+        "Cluster": {
+          "Ref": "ECSCluster"
+        },
+        "CapacityProviders": [
+          {
+            "Ref": "ECSCapacityProvider"
+          }
+        ],
         "DefaultCapacityProviderStrategy": [
           {
-            "CapacityProvider": { "Ref": "ECSCapacityProvider" },
+            "CapacityProvider": {
+              "Ref": "ECSCapacityProvider"
+            },
             "Weight": 1,
             "Base": 0
           }
@@ -521,47 +840,103 @@
       }
     }
   },
-
   "Outputs": {
     "ClusterName": {
       "Description": "ECS Cluster Name",
-      "Value": { "Ref": "ECSCluster" },
-      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-ClusterName" } }
+      "Value": {
+        "Ref": "ECSCluster"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ClusterName"
+        }
+      }
     },
     "ClusterArn": {
       "Description": "ECS Cluster ARN",
-      "Value": { "Fn::GetAtt": ["ECSCluster", "Arn"] },
-      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-ClusterArn" } }
+      "Value": {
+        "Fn::GetAtt": [
+          "ECSCluster",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ClusterArn"
+        }
+      }
     },
     "LogGroupName": {
       "Description": "CloudWatch Log Group Name for ECS tasks",
-      "Value": { "Ref": "ECSLogGroup" },
-      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-LogGroupName" } }
+      "Value": {
+        "Ref": "ECSLogGroup"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-LogGroupName"
+        }
+      }
     },
     "TaskExecutionRoleArn": {
       "Description": "Task Execution Role ARN (for pulling images and secrets)",
-      "Value": { "Fn::GetAtt": ["ECSTaskExecutionRole", "Arn"] },
-      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-TaskExecutionRoleArn" } }
+      "Value": {
+        "Fn::GetAtt": [
+          "ECSTaskExecutionRole",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-TaskExecutionRoleArn"
+        }
+      }
     },
     "TaskRoleArn": {
       "Description": "Task Role ARN (for application permissions: SQS, DynamoDB, CloudWatch)",
-      "Value": { "Fn::GetAtt": ["ECSTaskRole", "Arn"] },
-      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-TaskRoleArn" } }
+      "Value": {
+        "Fn::GetAtt": [
+          "ECSTaskRole",
+          "Arn"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-TaskRoleArn"
+        }
+      }
     },
     "SecurityGroupId": {
       "Description": "Security Group ID for ECS instances",
-      "Value": { "Ref": "ECSSecurityGroup" },
-      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-SecurityGroupId" } }
+      "Value": {
+        "Ref": "ECSSecurityGroup"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-SecurityGroupId"
+        }
+      }
     },
     "AutoScalingGroupName": {
       "Description": "Auto Scaling Group Name",
-      "Value": { "Ref": "ECSAutoScalingGroup" },
-      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-AutoScalingGroupName" } }
+      "Value": {
+        "Ref": "ECSAutoScalingGroup"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-AutoScalingGroupName"
+        }
+      }
     },
     "CapacityProviderName": {
       "Description": "Capacity Provider Name",
-      "Value": { "Ref": "ECSCapacityProvider" },
-      "Export": { "Name": { "Fn::Sub": "${AWS::StackName}-CapacityProviderName" } }
+      "Value": {
+        "Ref": "ECSCapacityProvider"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-CapacityProviderName"
+        }
+      }
     }
   }
 }
