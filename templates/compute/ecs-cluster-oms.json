@@ -45,9 +45,9 @@
     },
     "DesiredCapacity": {
       "Type": "Number",
-      "Default": 2,
+      "Default": 1,
       "MinValue": 1,
-      "Description": "Desired number of EC2 instances"
+      "Description": "Desired number of EC2 instances (default: 1 for dev/staging, override to 2+ for prod)"
     },
     "KeyPairName": {
       "Type": "String",
@@ -575,10 +575,18 @@
             "Ref": "ECSAutoScalingGroup"
           },
           "ManagedScaling": {
-            "Status": "ENABLED",
-            "TargetCapacity": 80,
-            "MinimumScalingStepSize": 1,
-            "MaximumScalingStepSize": 4
+            "Fn::If": [
+              "IsProd",
+              {
+                "Status": "ENABLED",
+                "TargetCapacity": 70,
+                "MinimumScalingStepSize": 1,
+                "MaximumScalingStepSize": 2
+              },
+              {
+                "Status": "DISABLED"
+              }
+            ]
           },
           "ManagedTerminationProtection": {
             "Fn::If": [

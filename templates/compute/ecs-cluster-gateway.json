@@ -51,9 +51,9 @@
     },
     "DesiredCapacity": {
       "Type": "Number",
-      "Default": 2,
+      "Default": 1,
       "MinValue": 1,
-      "Description": "Desired capacity of Auto Scaling Group"
+      "Description": "Desired capacity of Auto Scaling Group (default: 1 for dev/staging, override to 2+ for prod)"
     },
     "KeyPairName": {
       "Type": "String",
@@ -427,10 +427,18 @@
         "AutoScalingGroupProvider": {
           "AutoScalingGroupArn": { "Ref": "AutoScalingGroup" },
           "ManagedScaling": {
-            "Status": "ENABLED",
-            "TargetCapacity": 80,
-            "MinimumScalingStepSize": 1,
-            "MaximumScalingStepSize": 2
+            "Fn::If": [
+              "IsProd",
+              {
+                "Status": "ENABLED",
+                "TargetCapacity": 70,
+                "MinimumScalingStepSize": 1,
+                "MaximumScalingStepSize": 2
+              },
+              {
+                "Status": "DISABLED"
+              }
+            ]
           },
           "ManagedTerminationProtection": {
             "Fn::If": ["IsProd", "ENABLED", "DISABLED"]

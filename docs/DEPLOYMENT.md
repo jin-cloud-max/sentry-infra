@@ -506,6 +506,244 @@ Adicione `--capabilities CAPABILITY_NAMED_IAM` ao comando.
 
 ---
 
+## Estratégias de Auto Scaling
+
+### Visão Geral
+
+O sistema utiliza duas camadas de auto scaling que trabalham em conjunto:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        ESTRATÉGIA DE AUTO SCALING                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. ECS SERVICE AUTO SCALING (Tasks)                                        │
+│     ├── Métrica: ECSServiceAverageCPUUtilization                           │
+│     ├── Trigger: CPU média das tasks > TargetCPUUtilization (70%)          │
+│     ├── Ação: Adiciona/remove tasks                                        │
+│     └── Cooldown: 60s (scale out) / 300s (scale in)                        │
+│                                                                             │
+│  2. CAPACITY PROVIDER MANAGED SCALING (Instâncias)                         │
+│     ├── Métrica: Capacidade reservada do cluster                           │
+│     ├── Trigger: Capacidade reservada > TargetCapacity (70%)               │
+│     ├── Ação: Adiciona/remove instâncias EC2                               │
+│     └── Proativo: Mantém 30% de buffer para novas tasks                    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Fluxo de Scaling
+
+```
+                    ┌──────────────────────┐
+                    │   Task CPU > 70%     │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │ ECS Service adiciona │
+                    │     nova task        │
+                    └──────────┬───────────┘
+                               │
+              ┌────────────────┴────────────────┐
+              │                                 │
+              ▼                                 ▼
+   ┌─────────────────────┐          ┌─────────────────────┐
+   │  Cabe nas instâncias│          │ NÃO cabe nas        │
+   │     existentes?     │          │ instâncias          │
+   └──────────┬──────────┘          └──────────┬──────────┘
+              │                                 │
+              │ SIM                             │ NÃO
+              ▼                                 ▼
+   ┌─────────────────────┐          ┌─────────────────────┐
+   │  Task é colocada    │          │ Capacity Provider   │
+   │  em instância livre │          │ sobe nova instância │
+   └─────────────────────┘          └──────────┬──────────┘
+                                               │
+                                               ▼
+                                    ┌─────────────────────┐
+                                    │ Task é colocada na  │
+                                    │   nova instância    │
+                                    └─────────────────────┘
+```
+
+### Comportamento por Ambiente
+
+| Ambiente | Task Auto Scaling | Instance Auto Scaling | Motivo |
+|----------|-------------------|----------------------|--------|
+| **dev** | Desabilitado (default) | Desabilitado | Controle de custos |
+| **staging** | Desabilitado (default) | Desabilitado | Controle de custos |
+| **prod** | Habilitável via parâmetro | Habilitado automaticamente | Alta disponibilidade |
+
+### Parâmetros de Auto Scaling
+
+#### Task Definition (OMS e WebSocket)
+
+| Parâmetro | Default | Descrição |
+|-----------|---------|-----------|
+| `EnableServiceAutoScaling` | `false` | Habilita scaling automático de tasks |
+| `MinTaskCount` | `1` | Mínimo de tasks (mesmo com baixa CPU) |
+| `MaxTaskCount` | `4` | Máximo de tasks (limite de scale up) |
+| `TargetCPUUtilization` | `70` | % de CPU que dispara scaling |
+| `ScaleOutCooldown` | `60` | Segundos entre scale outs (rápido) |
+| `ScaleInCooldown` | `300` | Segundos entre scale ins (conservador) |
+
+#### ECS Cluster (OMS e Gateway)
+
+| Parâmetro | Default | Descrição |
+|-----------|---------|-----------|
+| `TargetCapacity` | `70` | % de capacidade reservada que dispara scaling |
+| `MinimumScalingStepSize` | `1` | Mínimo de instâncias adicionadas por vez |
+| `MaximumScalingStepSize` | `2` | Máximo de instâncias adicionadas por vez |
+
+### Configuração Recomendada
+
+#### DEV/STAGING (Custos controlados)
+
+```bash
+# Task Definition - Auto Scaling desabilitado
+EnableServiceAutoScaling=false
+DesiredCount=1
+
+# Cluster - Managed Scaling desabilitado (automático para non-prod)
+DesiredCapacity=1
+MinSize=1
+MaxSize=2
+```
+
+#### PROD (Alta disponibilidade)
+
+```bash
+# Task Definition - Auto Scaling habilitado
+EnableServiceAutoScaling=true
+MinTaskCount=2
+MaxTaskCount=8
+TargetCPUUtilization=70
+ScaleOutCooldown=60
+ScaleInCooldown=300
+
+# Cluster - Managed Scaling habilitado (automático para prod)
+DesiredCapacity=2
+MinSize=2
+MaxSize=8
+# TargetCapacity=70 (configurado no template)
+```
+
+### Como Habilitar Auto Scaling
+
+#### Via Console AWS (CloudFormation)
+
+1. Acesse a stack da Task Definition
+2. Clique em **Update**
+3. Selecione **Use current template**
+4. Altere `EnableServiceAutoScaling` para `true`
+5. Ajuste `MinTaskCount`, `MaxTaskCount` conforme necessário
+6. Complete o update
+
+#### Via CLI
+
+```bash
+# Habilitar Auto Scaling para OMS em prod
+aws cloudformation update-stack \
+  --stack-name sentry-task-oms-prod \
+  --use-previous-template \
+  --parameters \
+    ParameterKey=Environment,UsePreviousValue=true \
+    ParameterKey=ECSClusterStackName,UsePreviousValue=true \
+    ParameterKey=ECRRepositoryUri,UsePreviousValue=true \
+    ParameterKey=AppSecretArn,UsePreviousValue=true \
+    ParameterKey=EnableServiceAutoScaling,ParameterValue=true \
+    ParameterKey=MinTaskCount,ParameterValue=2 \
+    ParameterKey=MaxTaskCount,ParameterValue=8 \
+  --capabilities CAPABILITY_NAMED_IAM
+```
+
+### Monitoramento do Auto Scaling
+
+#### Métricas CloudWatch
+
+```bash
+# CPU média do serviço (dispara task scaling)
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/ECS \
+  --metric-name CPUUtilization \
+  --dimensions Name=ClusterName,Value=sentry-oms-prod Name=ServiceName,Value=sentry-oms-service-prod \
+  --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ) \
+  --end-time $(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  --period 300 \
+  --statistics Average
+
+# Capacidade do cluster (dispara instance scaling)
+aws ecs describe-clusters \
+  --clusters sentry-oms-prod \
+  --include STATISTICS \
+  --query 'clusters[0].statistics'
+```
+
+#### Logs de Scaling
+
+```bash
+# Ver eventos de scaling de tasks
+aws application-autoscaling describe-scaling-activities \
+  --service-namespace ecs \
+  --resource-id service/sentry-oms-prod/sentry-oms-service-prod
+
+# Ver eventos de scaling de instâncias
+aws autoscaling describe-scaling-activities \
+  --auto-scaling-group-name sentry-oms-asg-prod \
+  --max-items 10
+```
+
+### Ajuste Fino do Scaling
+
+#### Scaling mais agressivo (tasks)
+```bash
+TargetCPUUtilization=50    # Escala mais cedo
+ScaleOutCooldown=30        # Escala mais rápido
+```
+
+#### Scaling mais conservador (tasks)
+```bash
+TargetCPUUtilization=80    # Escala mais tarde
+ScaleInCooldown=600        # Demora mais para remover tasks
+```
+
+#### Scaling mais proativo (instâncias)
+```bash
+TargetCapacity=60          # Mantém 40% de buffer
+```
+
+#### Scaling mais econômico (instâncias)
+```bash
+TargetCapacity=85          # Mantém apenas 15% de buffer
+```
+
+### Troubleshooting Auto Scaling
+
+#### Tasks não estão escalando
+1. Verifique se `EnableServiceAutoScaling=true`
+2. Confirme que a métrica CPU está acima do threshold
+3. Verifique se não está no período de cooldown
+4. Consulte os logs de Application Auto Scaling
+
+#### Instâncias não estão escalando (prod)
+1. Verifique se o ambiente é `prod` (Managed Scaling só ativa em prod)
+2. Confirme que há tasks pendentes que não cabem nas instâncias
+3. Verifique os limites de MaxSize no Auto Scaling Group
+4. Consulte os eventos do ASG
+
+#### Scaling muito lento
+1. Reduza `ScaleOutCooldown` para tasks
+2. Reduza `TargetCapacity` para instâncias (mais buffer)
+3. Aumente `MaximumScalingStepSize` para instâncias
+
+#### Custos altos inesperados
+1. Verifique se `EnableServiceAutoScaling=false` em dev/staging
+2. Confirme que o ambiente está correto (prod vs dev)
+3. Revise os valores de `MinTaskCount` e `MinSize`
+
+---
+
 ## Adicionando Novos Recursos
 
 1. Crie o template em `templates/<categoria>/<nome>.json`
