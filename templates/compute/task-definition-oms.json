@@ -156,7 +156,10 @@
     "IndividualOrdersEnabled": {
       "Type": "String",
       "Default": "true",
-      "AllowedValues": ["true", "false"],
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
       "Description": "Enable individual orders processing via SQS"
     },
     "ContainerPort": {
@@ -181,7 +184,10 @@
     "EnableServiceAutoScaling": {
       "Type": "String",
       "Default": "false",
-      "AllowedValues": ["true", "false"],
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
       "Description": "Enable ECS Service Auto Scaling based on CPU utilization"
     },
     "MinTaskCount": {
