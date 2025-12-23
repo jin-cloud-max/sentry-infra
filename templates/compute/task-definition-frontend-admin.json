@@ -310,6 +310,24 @@
                 }
               ]
             }
+          },
+          {
+            "PolicyName": "SNSManageTopics",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "sns:CreateTopic",
+                    "sns:GetTopicAttributes"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:integration-*-${Environment}"
+                  }
+                }
+              ]
+            }
           }
         ],
         "Tags": [

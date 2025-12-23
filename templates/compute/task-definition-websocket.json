@@ -97,7 +97,10 @@
     "EnableServiceAutoScaling": {
       "Type": "String",
       "Default": "false",
-      "AllowedValues": ["true", "false"],
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
       "Description": "Enable ECS Service Auto Scaling based on CPU utilization"
     },
     "MinTaskCount": {
@@ -143,7 +146,9 @@
     },
     "EnableAutoScaling": {
       "Fn::Equals": [
-        {"Ref": "EnableServiceAutoScaling"},
+        {
+          "Ref": "EnableServiceAutoScaling"
+        },
         "true"
       ]
     }
@@ -156,20 +161,30 @@
           "Fn::Sub": "/ecs/${ProjectName}/websocket-service/${Environment}"
         },
         "RetentionInDays": {
-          "Fn::If": ["IsProd", 30, 7]
+          "Fn::If": [
+            "IsProd",
+            30,
+            7
+          ]
         },
         "Tags": [
           {
             "Key": "Name",
-            "Value": {"Fn::Sub": "${ProjectName}-websocket-service-logs-${Environment}"}
+            "Value": {
+              "Fn::Sub": "${ProjectName}-websocket-service-logs-${Environment}"
+            }
           },
           {
             "Key": "Environment",
-            "Value": {"Ref": "Environment"}
+            "Value": {
+              "Ref": "Environment"
+            }
           },
           {
             "Key": "Project",
-            "Value": {"Ref": "ProjectName"}
+            "Value": {
+              "Ref": "ProjectName"
+            }
           },
           {
             "Key": "Service",
@@ -266,6 +281,21 @@
                 }
               ]
             }
+          },
+          {
+            "PolicyName": "SNSPublishAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "sns:Publish",
+                  "Resource": {
+                    "Fn::Sub": "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:integration-*-${Environment}"
+                  }
+                }
+              ]
+            }
           }
         ],
         "Tags": [
@@ -317,7 +347,10 @@
           }
         },
         "TaskRoleArn": {
-          "Fn::GetAtt": ["TaskRole", "Arn"]
+          "Fn::GetAtt": [
+            "TaskRole",
+            "Arn"
+          ]
         },
         "ContainerDefinitions": [
           {
@@ -545,8 +578,12 @@
       "Condition": "EnableAutoScaling",
       "DependsOn": "Service",
       "Properties": {
-        "MaxCapacity": {"Ref": "MaxTaskCount"},
-        "MinCapacity": {"Ref": "MinTaskCount"},
+        "MaxCapacity": {
+          "Ref": "MaxTaskCount"
+        },
+        "MinCapacity": {
+          "Ref": "MinTaskCount"
+        },
         "ResourceId": {
           "Fn::Join": [
             "/",
@@ -557,7 +594,9 @@
                   "Fn::Sub": "${ECSClusterStackName}-ClusterName"
                 }
               },
-              {"Fn::Sub": "${ProjectName}-websocket-service-${Environment}"}
+              {
+                "Fn::Sub": "${ProjectName}-websocket-service-${Environment}"
+              }
             ]
           ]
         },
@@ -572,16 +611,26 @@
       "Type": "AWS::ApplicationAutoScaling::ScalingPolicy",
       "Condition": "EnableAutoScaling",
       "Properties": {
-        "PolicyName": {"Fn::Sub": "${ProjectName}-websocket-cpu-scaling-${Environment}"},
+        "PolicyName": {
+          "Fn::Sub": "${ProjectName}-websocket-cpu-scaling-${Environment}"
+        },
         "PolicyType": "TargetTrackingScaling",
-        "ScalingTargetId": {"Ref": "ScalableTarget"},
+        "ScalingTargetId": {
+          "Ref": "ScalableTarget"
+        },
         "TargetTrackingScalingPolicyConfiguration": {
           "PredefinedMetricSpecification": {
             "PredefinedMetricType": "ECSServiceAverageCPUUtilization"
           },
-          "TargetValue": {"Ref": "TargetCPUUtilization"},
-          "ScaleInCooldown": {"Ref": "ScaleInCooldown"},
-          "ScaleOutCooldown": {"Ref": "ScaleOutCooldown"}
+          "TargetValue": {
+            "Ref": "TargetCPUUtilization"
+          },
+          "ScaleInCooldown": {
+            "Ref": "ScaleInCooldown"
+          },
+          "ScaleOutCooldown": {
+            "Ref": "ScaleOutCooldown"
+          }
         }
       }
     }
@@ -626,7 +675,10 @@
     "TaskRoleArn": {
       "Description": "WebSocket Task Role ARN",
       "Value": {
-        "Fn::GetAtt": ["TaskRole", "Arn"]
+        "Fn::GetAtt": [
+          "TaskRole",
+          "Arn"
+        ]
       },
       "Export": {
         "Name": {
